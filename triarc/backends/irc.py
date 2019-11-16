@@ -1,9 +1,11 @@
 import trio
+import logging
 import inspect
 import re
 import queue
-import ssl as pyssl
+import ssl
 
+from typing import Union, Optional
 from triarc.backend import Backend
 from collections import namedtuple
 
@@ -22,6 +24,7 @@ IRC_RESP = re.compile(IRC_RESP)
 
 
 IRCResponse = namedtuple('IRCResponse', (
+    'line',
     'server',
     'is_numeric',
     'kind',
@@ -66,11 +69,11 @@ def irc_parse_response(resp: str) -> IRCResponse:
     data = resp.group(5)
 
     params = IRCParams(args, data)
-    return IRCResponse(resp.group(1), is_numeric, kind, params)
+    return IRCResponse(resp.group(0), resp.group(1), is_numeric, kind, params)
 
 
 class IRCConnection(Backend):
-    def __init__(self, host, port=6667, ssl=None):
+    def __init__(self, host: str, port: int = 6667, ssl_ctx: Optional[ssl.SSLContext] = None):
         """Sets up an IRC connection that can be used as
         a triarc backend.
 
@@ -97,14 +100,17 @@ class IRCConnection(Backend):
 
         self.host = host
         self.port = port
-        self.ssl_context = ssl
-        self.connection = None
+        self.ssl_context = ssl_ctx # type: Optional[ssl.SSLContext]
+        self.connection = None # type: trio.SocketStream | trio.SSLStream
 
         self._out_queue = queue.Queue()
         self._heat = 0
 
         self._running = False
         self._stopping = False
+
+        self.logger = None # type: logging.Logger
+        self.stop_scopes = []
 
     def running(self):
         """Returns whether this IRC connection is still up and running.
@@ -117,18 +123,19 @@ class IRCConnection(Backend):
             bool -- Self-explanatory.
         """
 
-        return self._running
+        return self._running and not self._stopping
 
     async def _cooldown(self):
-        while self.running():
-            self._heat = max(self._heat - 1, 0)
+        with self.new_stop_scope():
+            while self.running():
+                self._heat = max(self._heat - 1, 0)
 
-            await trio.sleep(1)
+                await trio.sleep(1)
 
-    def _send(self, line):
+    def _send(self, line: str):
         self._out_queue.put((line, None))
 
-    async def _send_and_wait(self, line):
+    async def _send_and_wait(self, line: str):
         waiting = [True]
 
         async def post_wait():
@@ -139,32 +146,40 @@ class IRCConnection(Backend):
         while waiting[0]:
             await trio.sleep(0.01)
 
+    def new_stop_scope(self):
+        scope = trio.CancelScope()
+        self.stop_scopes.append(scope)
+
+        return scope
+
     async def _sender(self):
-        while self.running():
-            while not self._out_queue.empty():
-                self._heat += 1
+        with self.new_stop_scope():
+            while self.running():
+                while not self._out_queue.empty():
+                    self._heat += 1
 
-                if self._heat > 5:
-                    break
+                    if self._heat > 5:
+                        break
 
-                item, on_send = self._out_queue.get()
+                    item, on_send = self._out_queue.get()
 
-                await self._send(item)
+                    await self._send(item)
 
-                if on_send:
-                    await on_send()
+                    if on_send:
+                        await on_send()
 
-            if self._heat > 5:
-                while self._heat:
-                    await trio.sleep(0.2)
+                if self.running():
+                    if self._heat > 5:
+                        while self._heat:
+                            await trio.sleep(0.2)
 
-            else:
-                await trio.sleep(0.1)
+                    else:
+                        await trio.sleep(0.1)
 
-    async def _send(self, item):
+    async def _send(self, item: str):
         await self.connection.send_all(str(item).encode('utf-8') + b'\r\n')
 
-    async def _receive(self, line):
+    async def _receive(self, line: str):
         """
         This function is called asynchronously everytime
         the IRC backend receives a response from the
@@ -183,6 +198,9 @@ class IRCConnection(Backend):
 
         Arguments:
             line {str} -- A single line, after being extracted from received data, and stripped of its trailing CRLF.
+
+        Returns:
+            bool -- Whether the line is valid IRC data.
         """
 
         response = irc_parse_response(line)
@@ -200,21 +218,22 @@ class IRCConnection(Backend):
         return True
 
     async def _receiver(self):
-        while self.running():
-            buffer = ''
+        with self.new_stop_scope():
+            while self.running():
+                buffer = ''
 
-            try:
-                async for data in self.connection:
-                    lines = re.split(IRC_SOFT_NEWLINE, buffer + data.decode('utf-8'))
-                    buffer = lines.pop()
+                try:
+                    async for data in self.connection:
+                        lines = re.split(IRC_SOFT_NEWLINE, buffer + data.decode('utf-8'))
+                        buffer = lines.pop()
 
-                    for l in lines:
-                        await self._receive(l)
+                        for l in lines:
+                            await self._receive(l)
 
-                    await trio.sleep(0.01)
+                        await trio.sleep(0.01)
 
-            except trio.BrokenResourceError:
-                self.stop()
+                except (trio.BrokenResourceError, trio.ClosedResourceError):
+                    break
 
     async def start(self):
         """Starts the IRC connection.
@@ -268,15 +287,19 @@ class IRCConnection(Backend):
         async with trio.open_nursery() as nursery:
             nursery.start_soon(self._cooldown)
             nursery.start_soon(self._sender)
-
-        await connection.aclose()
+            nursery.start_soon(self._receiver)
 
         self._running = False
 
     async def stop(self):
         self._stopping = True
+        await self.connection.aclose()
+
+        for s in self.stop_scopes:
+            s.cancel()
 
         while self.running():
             await trio.sleep(0.01)
 
+        self._running  = False
         self._stopping = False
