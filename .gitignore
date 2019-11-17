@@ -1,2 +1,10 @@
-/env/
+env/
 **/__pycache__
+build/
+dist/
+*.code-workspace
+*.egg-info/
+snobeconfig.py
+*.brain
+*.brain-journal
+*.db
