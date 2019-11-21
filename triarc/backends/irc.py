@@ -1,7 +1,9 @@
 import trio
+import random
 import logging
 import inspect
 import re
+import platform
 import queue
 import ssl
 
@@ -20,7 +22,6 @@ IRC_RESP_PARAMS = r'((?: (?:[^\0 \n]*))*?)?(?: :([^\0\n]*))?'
 
 IRC_RESP = '^{}(?:(?:{})|(?:{})){}$'.format(IRC_RESP_PREFIX, IRC_RESP_NUMERIC, IRC_RESP_COMMAND, IRC_RESP_PARAMS)
 IRC_RESP = re.compile(IRC_RESP)
-
 
 
 IRCResponse = namedtuple('IRCResponse', (
@@ -126,10 +127,6 @@ class IRCConnection(Backend):
         self.logger = None # type: logging.Logger
         self.stop_scopes = set()
         self.stop_scope_watcher = None # type: trio.NurseryManager
-
-        @self.listen('PING')
-        async def respond_to_pings(_, msg):
-            await self.send('PONG ' + ' '.join(msg.params.args) + ' :' + msg.params.data)
 
     def running(self):
         """Returns whether this IRC connection is still up and running.
@@ -247,9 +244,11 @@ class IRCConnection(Backend):
         response = irc_parse_response(line)
 
         if not response:
-            if line.split(' ')[0].upper() == ':PING':
-                data = line.split(' ')[1:]
+            if line.split(' ')[0].upper() == 'PING':
+                data = ' '.join(line.split(' ')[1:])
                 await self.send('PONG ' + data)
+
+                return True
 
             else:
                 return False
@@ -472,3 +471,4 @@ class IRCConnection(Backend):
         """
 
         await self.send('PRIVMSG {} :{}'.format(target, message))
+        

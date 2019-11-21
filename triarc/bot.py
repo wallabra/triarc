@@ -1,4 +1,5 @@
 import warnings
+import traceback
 
 from triarc.backend import Backend
 from typing import Optional
@@ -94,7 +95,7 @@ class CommandBot(Bot):
 
         pass
 
-    async def read(self, target: str, message: str):
+    async def read(self, target: str, message: str, data: any = None):
         """CommandBot subclasses must call this function
         whenever messages are received from others,
         in order to find and process potential commands.
@@ -102,6 +103,9 @@ class CommandBot(Bot):
         Arguments:
             target {str} -- The target (e.g. channel or user on IRC) to send command answers to, by default.
             message {str} -- The line to read.
+
+        Keyword Arguments:
+            data {any} -- Any object that holds information about this event, such as an IRC server response (default: None)
         """
 
         message = message.rstrip()
@@ -114,9 +118,10 @@ class CommandBot(Bot):
 
             if cmd in self.commands:
                 try:
-                    await self.commands[cmd](target, *args)
+                    await self.commands[cmd](target, data, *args)
 
                 except Exception as err:
+                    traceback.print_exc()
                     await self.respond(target, '{}: {}'.format(type(err).__name__, str(err)))
 
     def add_command(self, name: str, help_string: Optional[str] = None):
