@@ -1,54 +1,83 @@
 #!/usr/bin/env python3
+"""An interface library, to generalize member access across
+multiple *existing* objects."""
 
 import inspect
 
-from typing import Set, Optional, List
+from typing import Optional, List
 
 
 
 class InterfaceAttributeError(AttributeError):
-    pass
+    """
+    Exception raised whenever the interface can't find a member that
+    it expected to find. This isn't raised on interface instantiation,
+    but rather lazily, i.e. only when such member is requested.
+    """
 
+class Interface:
+    """An interface, that defines expected members, and can be
+    instantiated with a list of objects (called implementors),
+    returning a special object that can access members from these
+    implementors (or raise NotImplementedError when an expected
+    member is not there).
+    """
 
-class Interface(object):
     _init_attr = {}
 
     def __init__(self, implementors: List[object]):
+        """
+        Arguments:
+            implementors {List[object]} -- A list of implementor objects
+                                           to the which to bind members.
+        """
+
         object.__setattr__(self, '_implementors', list(implementors))
 
         def bind_attr(name, val, source):
             if inspect.ismethod(val):
-                # Bind methods to their source implementors.
-                class ProxySelf(object):
-                    def __getattribute__(_, name): 
-                        return getattr(self, name)
+                i_self = self
 
-                    def __setattr__(_, name, val): 
-                        return setattr(self, name, val)
+                # Bind methods to their source implementors.
+                class ProxySelf:
+                    """A proxy class responsible for binding attributes
+                    on method calls. This class is used because, internally,
+                    Interface is actually calling the method on the class
+                    of the implementor, instead of the implementor itself,
+                    because then it can pass a ProxySelf instance and
+                    bind attributes set on self.
+                    """
+
+                    def __getattribute__(self, name):
+                        return getattr(i_self, name)
+
+                    def __setattr__(self, name, val):
+                        return setattr(i_self, name, val)
 
                 proxy_self = ProxySelf()
 
                 def _inner(*args, **kwargs):
-                    f = getattr(type(source), name)
-                    return f(proxy_self, *args, **kwargs)
+                    unbound_func = getattr(type(source), name)
+                    return unbound_func(proxy_self, *args, **kwargs)
 
                 return _inner
-        
-            else:
-                def _getter():
-                    return getattr(source, name)
 
-                def _setter(val):
-                    return setattr(source, name, val)
+            def _getter():
+                return getattr(source, name)
 
-                return property(_getter, _setter)
-                
+            def _setter(val):
+                return setattr(source, name, val)
+
+            return property(_getter, _setter)
+
         for name, val in type(self)._init_attr.items():
             object.__setattr__(self, name, val)
 
         for i in self._implementors:
             for name in dir(i):
-                if name.strip('_') != '' and (len(name) < 4 or name[:2] != '__' or name[-2:] != '__'):
+                if name.strip('_') != '' and (
+                        len(name) < 4 or name[:2] != '__' or name[-2:] != '__'
+                ):
                     val = getattr(i, name)
                     bound = bind_attr(name, val, i)
                     object.__setattr__(self, name, bound)
@@ -60,7 +89,7 @@ class Interface(object):
         except AttributeError as err:
             for i in super().__getattribute__('_implementors'):
                 if hasattr(i, name):
-                    return getattr(i, name) 
+                    return getattr(i, name)
 
             raise InterfaceAttributeError(str(err))
 
@@ -70,73 +99,42 @@ class Interface(object):
 
         object.__setattr__(self, name, value)
 
-    def _implementor_names(self):
-        return ' + '.join(a.__name__ for a in self._implementor)
-
     @classmethod
-    def require(cls, is_required: bool = False, required_name: Optional[str] = None):
+    def require(cls, is_required: bool = False, required_name: Optional[str] = None) -> any:
+        """This decorator class method defines an expected method, by using
+        the decorated function as a default value for that method by default
+        (or raising NotImplementedError otherwise).
+
+        Keyword Arguments:
+            is_required {bool} -- Whether to raise NotImplementedError if the method is not found
+                                  in any implementor. (default: {False})
+            required_name {Optional[str]} -- The name to expect. Defaults to the decorated
+                                             function's name. (default: {None})
+
+        Raises:
+            NotImplementedError: This method was not found in any implementor, so the interface
+                                 that explicitly requires it was not able to call any
+                                 real implementation of it.
+
+        Returns:
+            any -- Whatever the implementation returns.
+        """
+
         def _decorator(func):
             name = required_name or func.__name__
 
-            def _inner(self: Interface, *args, **kwargs):
+            def _inner(i_self: Interface, *args, **kwargs):
                 if is_required:
-                    raise NotImplementedError("{} doesn't implement {}!".format(self._implementor_names(), name))
+                    raise NotImplementedError("This Interface ({}) doesn't implement {}!".format(
+                        ' + '.join(
+                            type(i).__name__
+                            for i in object.__getattribute__(i_self, '_implementors')
+                        ), name
+                    ))
 
-                else:
-                    func(*args, **kwargs)
+                func(*args, **kwargs)
 
             cls._init_attr[name] = _inner
             return _inner
 
         return _decorator
-
-
-if __name__ == '__main__':
-    # eaxmple
-    class A(object):
-        def __init__(self):
-            self.dog = '?'
-
-        def woof(self):
-            print("Woof!")
-            self.dog = True
-
-    class B(object):
-        def __init__(self):
-            self.dog = '?'
-            
-        def woof(self):
-            print("Meow!")
-            self.dog = False
-
-    class MyInterface(Interface):
-        pass
-    
-    @MyInterface.require(True)
-    def woof(self):
-        pass
-
-    class Unrelated(object):
-        def __init__(self):
-            self.rich = False
-
-        def boring(self):
-            print('Stonks!')
-            self.rich = True
-
-    a = A()
-    b = B()
-    unrelated = Unrelated()
-
-    print('(A)')
-    MyInterface([unrelated, a]).woof()
-    print('(B)')
-    MyInterface([b, unrelated]).woof()
-    print('(Unrelated)')
-    MyInterface([unrelated, a]).boring()
-
-    print()
-    print('a is dog:', a.dog) # it was bound to MyInterface(a)
-    print('b is dog:', b.dog) # it was bound to MyInterface(b)
-    print('a is rich:', a.rich if hasattr(a, 'rich') else 'undefined')
-    print('b is rich:', b.rich if hasattr(b, 'rich') else 'undefined')

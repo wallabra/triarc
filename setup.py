@@ -4,7 +4,7 @@ import setuptools
 
 setuptools.setup(
     name="triarc",
-    version="0.1.0",
+    version="0.1.1",
     author="Gustavo Ramos Rehermann",
     author_email="rehermann6046@gmail.com",
     license='COIL',
@@ -12,7 +12,7 @@ setuptools.setup(
     keywords='bot network async trio irc',
 
     long_description=open(os.path.join(os.path.dirname(__file__), 'README.md')).read(),
-    packages=['triarc', 'triarc.backends'],
+    packages=['triarc', 'triarc.backends', 'triarc.mutators'],
     classifiers=[
         'Framework :: Trio',
         'Topic :: System :: Networking',
