@@ -289,7 +289,7 @@ class IRCConnection(Backend):
                     if on_send:
                         await on_send()
                         
-                    await self.receive_message('_SENT', line)
+                    await self.receive_message('_SENT', item)
 
                 if self.running():
                     if self._heat > self.max_heat and self.throttle:
