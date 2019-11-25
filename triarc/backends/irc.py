@@ -238,8 +238,6 @@ class IRCConnection(Backend):
             while waiting[0]:
                 await trio.sleep(0.05)
 
-        await self.receive_message('_SENT', line)
-
     def new_stop_scope(self):
         """Makes a new Trio cancel scope, which is automatically
         cancelled when the backend is stopped. The backend must
@@ -290,6 +288,8 @@ class IRCConnection(Backend):
 
                     if on_send:
                         await on_send()
+                        
+                    await self.receive_message('_SENT', line)
 
                 if self.running():
                     if self._heat > self.max_heat and self.throttle:
