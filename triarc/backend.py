@@ -107,3 +107,13 @@ class Backend:
             target {str} -- The target of the message (user, channel, etc).
             message {str} -- The message to be sent.
         """
+
+    def message_sync(self, target: str, message: str):
+        """Synchronous backend method, which must be implemented by
+        every backend if possible (and raise a RuntimeError if it
+        is not possible). Sends a message to a target, without blocking.
+
+        Arguments:
+            target {str} -- The target of the message (user, channel, etc).
+            message {str} -- The message to be sent.
+        """

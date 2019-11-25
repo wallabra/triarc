@@ -573,3 +573,6 @@ is_numeric=True, kind='404', params=IRCParams(args=['DEATH'], data='AAAAAAAAA'))
         """
 
         await self.send('PRIVMSG {} :{}'.format(target, message))
+
+    def message_sync(self, target: str, message: str):
+        self._out_queue.put(('PRIVMSG {} :{}'.format(target, message), None))
