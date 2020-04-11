@@ -1,1 +1,3 @@
 trio
+trio-asyncio
+discord.py

@@ -7,6 +7,7 @@ rather rigid with client behavior, which includes throttling
 import re
 import queue
 import ssl
+import logging
 
 from typing import Optional, Set
 from collections import namedtuple
@@ -103,9 +104,9 @@ class IRCConnection(Backend):
             channels: Set[str] = (),
             pre_join_wait: float = 5.,
             max_heat: int = 4,
-            ssl_ctx: Optional[ssl.SSLContext] = None,
             throttle: bool = True,
             cooldown_hertz: float = 1.2,
+            ssl_ctx: Optional[ssl.SSLContext] = None,
             auto_do_irc_handshake=True
     ):
         """Sets up an IRC connection that can be used as
@@ -144,8 +145,8 @@ class IRCConnection(Backend):
             max_heat {int} --   The maximum 'heat' (messaging spree) before
                                 outgoing data is throttled. (default: 4)
 
-            ssl {ssl.SSLContext} -- The SSL context used (or None if not using any).
-                                    (default: None)
+            ssl_ctx {ssl.SSLContext} -- The SSL context used (or None if not using any).
+                                        (default: None)
 
             throttle {bool} --  Whether to throttle. Do not disable unless you know what
                                 you're doing. (default: True)
@@ -220,7 +221,7 @@ class IRCConnection(Backend):
     async def send(self, line: str):
         """
         Queues to send a raw IRC command (string).
-        May be throttled. If awaited, this function
+        May be throttled. This function
         blocks, because it must emit the _SENT event.
 
         Arguments:
@@ -288,7 +289,7 @@ class IRCConnection(Backend):
 
                     if on_send:
                         await on_send()
-                        
+
                     await self.receive_message('_SENT', item)
 
                 if self.running():
@@ -320,7 +321,7 @@ class IRCConnection(Backend):
             ...
             >>> trio.run(print_a_test)
             ...
-            IRCResponse(line=':skynet.ai 404 DEATH :AAAAAAAAA', 'skynet.ai', \
+            IRCResponse(line=':skynet.ai 404 DEATH :AAAAAAAAA', origin='skynet.ai', \
 is_numeric=True, kind='404', params=IRCParams(args=['DEATH'], data='AAAAAAAAA'))
             True
 
@@ -460,19 +461,20 @@ is_numeric=True, kind='404', params=IRCParams(args=['DEATH'], data='AAAAAAAAA'))
             ...     with scope as status:
             ...         await trio.serve_tcp(make_mock_irc_server(scope), PORT)
             ...
-            >>> async def test_irc_client(nursery):
-            ...     client = IRCConnection('127.0.0.1', PORT)
+            >>> async def test_irc_client():
+            ...     client = IRCConnection('127.0.0.1', PORT, nickname="Triarc", auto_do_irc_handshake=False)
             ...
             ...     @client.listen_all()
-            ...     async def on_message(_, msg):
-            ...         print(msg.line)
+            ...     async def on_message(kind, msg):
+            ...         if not kind.startswith('_'):
+            ...             print(msg.line)
             ...
             ...     @client.listen('DONE')
             ...     async def on_done(_, msg):
             ...         await client.stop()
             ...
             ...     async def do_client_things():
-            ...         await trio.sleep(0.05)
+            ...         await trio.sleep(0.1)
             ...         await client.send_irc_handshake()
             ...         await client.send('AAA')
             ...         await client.send('::STOP!')
@@ -486,7 +488,7 @@ is_numeric=True, kind='404', params=IRCParams(args=['DEATH'], data='AAAAAAAAA'))
             >>> async def run_test():
             ...     async with trio.open_nursery() as nursery:
             ...         nursery.start_soon(test_irc_server)
-            ...         nursery.start_soon(test_irc_client, nursery)
+            ...         nursery.start_soon(test_irc_client)
             ...
             >>> trio.run(run_test)
             ...
@@ -504,24 +506,26 @@ is_numeric=True, kind='404', params=IRCParams(args=['DEATH'], data='AAAAAAAAA'))
         self.connection = connection
         self._running = True
 
-        if self.auto_do_irc_handshake:
-            async with trio.open_nursery() as nursery:
-                async def _loaded_stop_scopes():
-                    nursery.start_soon(self._cooldown)
-                    nursery.start_soon(self._sender)
-                    nursery.start_soon(self._receiver)
+        async with trio.open_nursery() as nursery:
+            async def _loaded_stop_scopes():
+                nursery.start_soon(self._cooldown)
+                nursery.start_soon(self._sender)
+                nursery.start_soon(self._receiver)
+
+                if self.auto_do_irc_handshake:
                     nursery.start_soon(self.send_irc_handshake)
 
-                nursery.start_soon(self._watch_stop_scopes, _loaded_stop_scopes)
+            nursery.start_soon(self._watch_stop_scopes, _loaded_stop_scopes)
 
         self._running = False
 
     async def stop(self):
         self._stopping = True
-        await self.connection.aclose()
 
         for scope in self.stop_scopes:
             scope.cancel()
+
+        await self.connection.aclose()
 
         while self.running():
             await trio.sleep(0.05)

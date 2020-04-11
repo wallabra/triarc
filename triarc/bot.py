@@ -29,7 +29,7 @@ class Bot:
 
         self.backends = backends
         self.mutators = set() # type: Set[Mutator]
-        
+
         for backend in self.backends:
             backend.listen_all()(functools.partial(self._specific_on_relay, backend))
             backend.listen_all()(functools.partial(self.on_any, backend))
@@ -59,10 +59,10 @@ class Bot:
         """
         Adds a listener that is called on any backend event.
         """
-        
+
         for backend in self.backends:
             backend.listen_all()(functools.partial(func, self, backend))
-        
+
         return func
 
     def register_mutator(self, mutator: Mutator):
@@ -93,10 +93,10 @@ class Bot:
             >>> dummy_backend = Backend()
             ...
             >>> class MyBot(Bot):
-            ...     async def on_hello(self, name):
+            ...     async def on_hello(_, self, name):
             ...         print('Hello, {}!'.format(name))
             ...
-            >>> bot = MyBot(dummy_backend)
+            >>> bot = MyBot([dummy_backend])
             ...
             >>> trio.run(dummy_backend.receive_message, 'hello', 'everyone')
             ...
