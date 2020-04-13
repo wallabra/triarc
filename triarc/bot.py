@@ -3,16 +3,17 @@ manage high-level responses, while leaving low-level handling
 details to the backend(s).
 """
 
+from typing import Optional, Set, Callable
+
 import warnings
 import traceback
 import functools
-from typing import Optional, Set
 
 import trio
 
 from triarc.backend import Backend
 from triarc.mutator import Mutator
-
+from triarc.errors import TriarcBotBackendRefusedError
 
 
 
@@ -21,18 +22,66 @@ class Bot:
     A bot superclass. It is supposed to be subclassed in order to be used, you know.
     """
 
-    def __init__(self, backends: Set[Backend]):
+    def __init__(self, name: str, backends: Set[Backend] = ()):
         """
         Arguments:
-            backends {Set[Backend]} -- A list of backends for the bot to harness.
+            name {str} -- A descriptive name for your Triarc bot.
+
+        Keyword Arguments:
+            backends {Set[triarc.backend.Backend]} -- A list of backends for the bot to harness.
         """
 
-        self.backends = backends
-        self.mutators = set() # type: Set[Mutator]
+        backends = set(backends)
 
-        for backend in self.backends:
+        self.backends = set() 
+        self.mutators = set() # type: Set[Mutator]
+        self.event_aliases = {}
+
+        for backend in backends:
+            self.register_backend(backend)
+
+    def add_alias(self, target_event, source_event, transform_data = None):
+        """
+        Adds an event alias to this Bot.
+
+        Event aliases are used to "mirror" event triggerings
+        into other events. The same arguments are mapped.
+
+        Arguments:
+            target_event {str} -- The target event this alias will trigger.
+            source_event {str} -- The source event that triggers this Alias.
+
+        Keyword Arguments:
+            transform_data {Optional[Callable]} -- A function that may transform
+                                                   the data passed to the next
+                                                   event.
+        """
+
+        self.event_aliases.setdefault(source_event, set()).add((target_event, transform_data))
+
+    def register_backend(self, backend: Backend, required: bool = False):
+        """
+        Registers an individual backend.
+
+        Arguments:
+            backend {triard.backend.Backend} -- A single backend to register to this bot.
+
+        Keyword Arguments:
+            required {bool} --  Whether the Backend refusing to be registered should raise
+                                an exception; see triarc.backend.Backend.pre_bot_register
+                                for more info on that.
+        """
+
+        if not backend.pre_bot_register(self):
+            self.backends.add(backend)
+
             backend.listen_all()(functools.partial(self._specific_on_relay, backend))
             backend.listen_all()(functools.partial(self.on_any, backend))
+
+            backend.post_bot_register(self)
+
+        elif required:
+            raise TriarcBotBackendRefusedError("Backend", backend, "refused to be registered by bot", self)
 
     async def respond(self, which: Backend, target: str, message: str) -> bool:
         """Replies to commands.
@@ -86,7 +135,7 @@ class Bot:
             data {any} -- The event's data.
         """
 
-    async def _specific_on_relay(self, which: Backend, kind, data):
+    async def _specific_on_relay(self, which: Backend, kind, data, _sent = ()):
         """
             >>> import trio
             ...
@@ -103,14 +152,30 @@ class Bot:
             Hello, everyone!
         """
 
+        _sent = set(_sent) | {kind}
+
         func_name = 'on_{}'.format(kind.lower())
 
         if hasattr(self, func_name):
             await getattr(self, func_name)(which, data)
 
+        # Call mutators
         for mutator in self.mutators:
             if hasattr(mutator, func_name):
                 await getattr(mutator, func_name)(self, which, data)
+
+        # Process aliases
+        alias_targets = set(self.event_aliases.get(kind, ())) | set(self.event_aliases.get((which, kind), ()))
+
+        for al, transf in alias_targets:
+            if al not in _sent:
+                if transf:
+                    targ_data = transf(data)
+
+                else:
+                    targ_data = data
+
+                await self._specific_on_relay(which, kind, targ_data, _sent)
 
     def init(self):
         """Called before the backend is started."""
@@ -143,6 +208,9 @@ class Bot:
 
         self.deinit()
 
+    def __repr__(self):
+        return "{}('{}': {{}})".format(type(self).__name__, self.name, ', '.join(repr(b) for b in self.backends))
+
 
 class CommandBot(Bot):
     """
@@ -155,7 +223,7 @@ class CommandBot(Bot):
     def __init__(self, backends: Set[Backend], prefix: str = "'"):
         """
         Arguments:
-            backend {Set[Backend]} -- This bot's backend(s).
+            backend {Set[triarc.backend.Backend]} -- This bot's backend(s).
 
         Keyword Arguments:
             prefix {str} -- The bot command to use (default: {"'"})
@@ -167,21 +235,8 @@ class CommandBot(Bot):
         self.commands = {}
         self.help = {}
 
-    async def read(self, which: Backend, target: str, message: str, data: any = None):
-        """CommandBot subclasses must call this function
-        whenever messages are received from others,
-        in order to find and process potential commands.
-
-        Arguments:
-            target {str} -- The target (e.g. channel or user on IRC) to send command
-                            answers to, by default.
-
-            message {str} -- The line to read.
-
-        Keyword Arguments:
-            data {any} --   Any object that holds information about this event,
-                            such as an IRC server response (default: None)
-        """
+    async def on_bot_message(self, which: Backend, data: (any, str, any)):
+        target, message, data = data
 
         message = message.rstrip()
 
@@ -201,6 +256,29 @@ class CommandBot(Bot):
                 except Exception as err:
                     traceback.print_exc()
                     await self.respond(which, target, '{}: {}'.format(type(err).__name__, str(err)))
+
+    async def read(self, which: Backend, target: any, message: str, data: any = None):
+        """
+        Deprecated method.
+
+        CommandBot subclasses used to call this function
+        whenever messages are received from others,
+        in order to find and process potential commands.
+
+        Prefer mapping an event to 'bot_message' instead.
+
+        Arguments:
+            target {any} -- Any object the backend treats as a target.
+
+            message {str} -- The line to read.
+
+        Keyword Arguments:
+            data {any} --   Any object that holds further information about this
+                            event, such as an IRC server response (default: None)
+        """
+
+        await self.on_bot_message(which, (target, message, data))
+
 
     def add_command(self, name: str, help_string: Optional[str] = None):
         """Adds a commannd to this bot, by supplying a define function and an asynchronous

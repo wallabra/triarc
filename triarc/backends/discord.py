@@ -4,20 +4,20 @@ The Discord backend.
 
 from typing import Union, Callable
 
-import re
 import logging
 import queue
 
 import discord
 import trio
 import trio_asyncio
+import triarc
 
 from triarc.backend import Backend
 
 
 
 
-class DiscordBackend(Backend):
+class DiscordClient(Backend):
     """
     A Discord backend. Used in order to create Triarc bots
     that function on Discord.
@@ -52,7 +52,8 @@ class DiscordBackend(Backend):
 
         super().__init__()
 
-        self.client = discord.Client(token)
+        self._token = token
+        self.client = discord.Client()
 
         self._out_queue = queue.Queue()
         self._heat = 0
@@ -263,8 +264,7 @@ class DiscordBackend(Backend):
 
     async def start(self):
         """Starts the Discord client."""
-
-        await trio_asyncio.aio_as_trio(self.client.start)()
+        await trio_asyncio.aio_as_trio(self.client.start)(self._token)
 
     async def stop(self):
         self._stopping = True
@@ -279,3 +279,6 @@ class DiscordBackend(Backend):
 
         self._running = False
         self._stopping = False
+
+    def post_bot_register(self, bot: "triarc.bot.Bot"):
+        bot.add_alias('message', 'privmsg')

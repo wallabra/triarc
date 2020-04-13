@@ -5,7 +5,7 @@ chatbot experience anywhere on IRC."""
 import os
 import re
 
-import trio
+import trio_asyncio
 
 import snobeconfig as CFG
 from triarc.bot import CommandBot
@@ -19,8 +19,8 @@ from snobe import Snobe
 class Grit(CommandBot):
     """Runs Grit, the advanced IRC chatbot."""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__({IRCConnection(*args, **kwargs)}, "'")
+    def __init__(self, *args, name="grit", **kwargs):
+        super().__init__(name, {IRCConnection(*args, **kwargs)})
 
         self.snobe = Snobe(
             os.environ.get('BRAIN', 'cobe.brain'),
@@ -79,7 +79,7 @@ class Grit(CommandBot):
             async def ping(_, *args):
                 await reply('Ye pong to "{}", yohohoh\'!'.format(' '.join(args)))
 
-        reddit = self.snobe.reddit # type: praw.Reddit
+        reddit = self.snobe.reddit
 
         @self.add_command('ask', 'Asks the COBE chatbot a query.')
         # pylint: disable=unused-variable
@@ -158,4 +158,4 @@ if __name__ == '__main__':
         channels=set(x.strip() for x in open("channels.txt").read().strip().split('\n'))
     )
     BOT.register_mutator(AntiHilite())
-    trio.run(BOT.start)
+    trio_asyncio.run(BOT.start)

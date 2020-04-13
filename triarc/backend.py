@@ -117,3 +117,29 @@ class Backend:
             target {str} -- The target of the message (user, channel, etc).
             message {str} -- The message to be sent.
         """
+
+    def post_bot_register(self, bot):
+        """
+        Called after a Bot registers this Backend.
+
+        Used so that the backend can perform further
+        useful operations on the bot, such as registering
+        event aliases.
+
+        Arguments:
+            bot {triarc.bot.Bot}: The Bot that registers this Backend.
+        """
+
+    def pre_bot_register(self, bot):
+        """
+        Caled when a Bot attempts to register this Backend; more
+        precisely, before it actually does so.
+
+        This backend may use this function to cancel the registering,
+        simply by returning a value that has a boolean value of True
+        (bool(x) is True).
+
+        Arguments:
+            bot {triarc.bot.Bot}: The Bot that wants to register this Backend.
+        """
+        return False
