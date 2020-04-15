@@ -19,12 +19,13 @@ from triarc.errors import TriarcBotBackendRefusedError
 
 
 class Message:
-    def __init__(self, backend, line, author_name, author_addr, channel):
+    def __init__(self, backend, line, author_name, author_addr, channel, channel_addr):
         self.backend = backend
         self.line = line
         self.author_name = author_name
         self.author_addr = author_addr
         self.channel = channel
+        self.channel_addr = channel_addr
 
     async def reply(self, reply_line):
         pass
@@ -276,36 +277,15 @@ class CommandBot(Bot):
         """
 
         def _decorator(func):
-            _target = [None]
-            _which = [None]
-
             def define(definition): # definition is the function
-                async def _inner(which: Backend, targ: str, *args, **kwargs):
-                    _which[0] = which
-                    _target[0] = targ
-
-                    return await definition(*args, **kwargs)
+                async def _inner(which: Backend, msg: Message, *args, **kwargs):
+                    return await definition(which, msg, *args, **kwargs)
 
                 self.commands[name] = _inner
 
             if help_string:
                 self.help['commands.' + name] = help_string
 
-            async def _reply(msg: str):
-                if not _target[0]:
-                    warnings.warn('Target not set in add_command! Please report this bug.')
-
-                elif not _which[0]:
-                    warnings.warn(
-                        'Source backend not set in add_command! Please report this bug.'
-                    )
-
-                else:
-                    await self.respond(_which[0], _target[0], msg)
-                    return True
-
-                return False
-
-            return func(define, _reply)
+            return func(define)
 
         return _decorator

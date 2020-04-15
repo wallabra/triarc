@@ -20,8 +20,8 @@ from triarc.bot import Message
 
 
 class IRCMessage(Message):
-    def __init__(self, backend, line, origin, channel):
-        super().__init__(backend, line, origin.split('!')[0], origin, channel)
+    def __init__(self, backend: 'IRCConnection', line, origin, channel):
+        super().__init__(backend, line, origin.split('!')[0], origin, channel, backend.host + '/' + channel)
 
     async def reply(self, reply_line):
         if self.channel == self.backend.nickname:
@@ -113,6 +113,8 @@ class IRCConnection(Backend):
             nickname: str = 'TriarcBot',
             realname: str = 'The awesome Python comms bot framework',
             passw: str = None,
+            nickserv_user: str = None,
+            nickserv_pass: str = None,
             channels: Set[str] = (),
             pre_join_wait: float = 5.,
             max_heat: int = 4,
@@ -199,6 +201,12 @@ class IRCConnection(Backend):
         self.stop_scope_watcher = None # type: trio.NurseryManager
 
         self.auto_do_irc_handshake = auto_do_irc_handshake
+
+        if nickserv_user and nickserv_pass:
+            self.nickserv = (nickserv_user, nickserv_pass)
+
+        else:
+            self.nickserv = None
 
     def running(self):
         """Returns whether this IRC connection is still up and running.
@@ -401,6 +409,10 @@ is_numeric=True, kind='404', params=IRCParams(args=['DEATH'], data='AAAAAAAAA'))
             await self.send('USER {} * * :{}'.format(self.nickname.split(' ')[0], self.realname))
 
             await trio.sleep(self.pre_join_wait)
+
+            if self.nickserv:
+                n_user, n_pass = self.nickserv
+                await self.message('NickServ', 'IDENTIFY {} {}'.format(n_user, n_pass))
 
             for chan in self.join_channels:
                 await self.join(chan)

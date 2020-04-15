@@ -10,7 +10,6 @@ import queue
 import discord
 import trio
 import trio_asyncio
-import triarc
 
 from triarc.backend import Backend
 from triarc.bot import Message
@@ -18,7 +17,7 @@ from triarc.bot import Message
 
 class DiscordMessage(Message):
     def __init__(self, backend, line, author, channel, discord_message):
-        super().__init__(backend, line, author.name, author.id, '#' + channel.name)
+        super().__init__(backend, line, author.name, author.id, '#' + channel.name, channel.id)
 
         self.discord_author  = author
         self.discord_channel = channel
