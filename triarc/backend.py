@@ -2,7 +2,9 @@
 here defined.
 """
 
-import trio
+from typing import Set
+
+from triarc.mutator import Mutator
 
 
 
@@ -12,8 +14,19 @@ class Backend:
     expected (and thus required) by the Triarc bot that will eventually use it."""
 
     def __init__(self):
+        self.mutators = set() # type: Set[Mutator]
+
         self._listeners = {}
         self._global_listeners = set()
+
+    def _register_mutator(self, mutator: Mutator):
+        self.mutators.add(mutator)
+
+    def _mutate_reply(self, target: str, reply: str) -> str:
+        for mut in self.mutators:
+            reply = mut.modify_message(self, target, reply)
+
+        return reply
 
     def listen(self, name: str = '_'):
         """Adds a listener for specific messages received in this backend.
@@ -85,9 +98,14 @@ class Backend:
             data {any} -- The message's data.
         """
 
-        async with trio.open_nursery() as nursery:
-            for listener in self._listeners.get(kind, set()) | self._global_listeners:
-                nursery.start_soon(listener, kind, data)
+        lists = self._listeners.get(kind, set()) | self._global_listeners
+
+        for listener in lists:
+            await listener(kind, data)
+
+        #async with trio.open_nursery() as nursery:
+        #    for listener in lists:
+        #        nursery.start_soon(listener, kind, data)
 
     async def start(self):
         """Starts the backend."""
@@ -123,8 +141,7 @@ class Backend:
         Called after a Bot registers this Backend.
 
         Used so that the backend can perform further
-        useful operations on the bot, such as registering
-        event aliases.
+        useful operations on the bot.
 
         Arguments:
             bot {triarc.bot.Bot}: The Bot that registers this Backend.

@@ -13,11 +13,22 @@ from typing import Optional, Set
 from collections import namedtuple
 
 import trio
-import triarc
 
 from triarc.backend import Backend
-from .. import bot as bot_module
+from triarc.bot import Message
 
+
+
+class IRCMessage(Message):
+    def __init__(self, backend, line, origin, channel):
+        super().__init__(backend, line, origin.split('!')[0], origin, channel)
+
+    async def reply(self, reply_line):
+        if self.channel == self.backend.nickname:
+            await self.backend.message(self.author, reply_line)
+
+        else:
+            await self.backend.message(self.channel, reply_line)
 
 
 IRC_SOFT_NEWLINE = re.compile(r'\r?\n')
@@ -216,9 +227,6 @@ class IRCConnection(Backend):
 
                     await trio.sleep(1 / self.cooldown_hertz)
 
-    def _send(self, line: str):
-        self._out_queue.put((line, None))
-
     async def send(self, line: str):
         """
         Queues to send a raw IRC command (string).
@@ -353,7 +361,11 @@ is_numeric=True, kind='404', params=IRCParams(args=['DEATH'], data='AAAAAAAAA'))
         else:
             received_kind = response.kind
 
-        await self.receive_message(received_kind, response)
+        await self.receive_message('IRC_' + received_kind, response)
+
+        if not response.is_numeric and response.kind.upper() == 'PRIVMSG':
+            await self.receive_message('MESSAGE', IRCMessage(self, response.params.data, response.origin, response.params.args[0]))
+
         return True
 
     async def _receiver(self):
@@ -387,6 +399,7 @@ is_numeric=True, kind='404', params=IRCParams(args=['DEATH'], data='AAAAAAAAA'))
 
             await self.send('NICK ' + self.nickname.split(' ')[0])
             await self.send('USER {} * * :{}'.format(self.nickname.split(' ')[0], self.realname))
+
             await trio.sleep(self.pre_join_wait)
 
             for chan in self.join_channels:
@@ -577,10 +590,7 @@ is_numeric=True, kind='404', params=IRCParams(args=['DEATH'], data='AAAAAAAAA'))
             message {str} -- The message.
         """
 
-        await self.send('PRIVMSG {} :{}'.format(target, message))
+        await self.send('PRIVMSG {} :{}'.format(target, self._mutate_reply(target, message)))
 
     def message_sync(self, target: str, message: str):
         self._out_queue.put(('PRIVMSG {} :{}'.format(target, message), None))
-
-    def post_bot_register(self, bot: "triarc.bot.Bot"):
-        bot.add_alias('message', 'privmsg')

@@ -13,8 +13,19 @@ import trio_asyncio
 import triarc
 
 from triarc.backend import Backend
+from triarc.bot import Message
 
 
+class DiscordMessage(Message):
+    def __init__(self, backend, line, author, channel, discord_message):
+        super().__init__(backend, line, author.name, author.id, '#' + channel.name)
+
+        self.discord_author  = author
+        self.discord_channel = channel
+        self.discord_message = discord_message
+
+    async def reply(self, reply_line):
+        await self.backend.message(self.discord_channel, reply_line)
 
 
 class DiscordClient(Backend):
@@ -53,7 +64,7 @@ class DiscordClient(Backend):
         super().__init__()
 
         self._token = token
-        self.client = discord.Client()
+        self.nickname = None
 
         self._out_queue = queue.Queue()
         self._heat = 0
@@ -68,15 +79,18 @@ class DiscordClient(Backend):
         self.stop_scopes = set()
         self.stop_scope_watcher = None # type: trio.NurseryManager
 
-        self._setup_client(self.client)
-
     def _setup_client(self, client: "discord.Client"):
         @client.event
-        async def on_message(message):
+        async def on_message(message: discord.message.Message):
             if message.author == client.user:
                 return
 
-            await self.receive_message('MESSAGE', message)
+            for line in message.content.split('\n'):
+                await self.receive_message('MESSAGE', DiscordMessage(self, line, message.author, message.channel, message))
+
+        @client.event
+        async def on_ready():
+            self.nickname = self.client.user.mention
 
     def listen(self, name: str = '_'):
         """Adds a listener for specific messages received in this backend.
@@ -132,33 +146,20 @@ class DiscordClient(Backend):
 
                     await trio.sleep(1 / self.cooldown_hertz)
 
-    async def _send(self, item: Callable):
-        await item.callback()
-
     async def send(self, line: Callable):
         """
         Queues a callback that is supposed to
         send a message or another event through the
         Discord client.
 
-        May be throttled. This function
-        blocks, because it must emit the _SENT event.
+        May be throttled.
 
         Arguments:
             line {Callable} -- The callback to be executed
                                when sending.
         """
 
-        waiting = [True]
-
-        async def post_wait():
-            waiting[0] = False
-
-        self._out_queue.put((line, post_wait))
-
-        with self.new_stop_scope():
-            while waiting[0]:
-                await trio.sleep(0.05)
+        self._out_queue.put(line)
 
     def new_stop_scope(self):
         """Makes a new Trio cancel scope, which is automatically
@@ -204,14 +205,9 @@ class DiscordClient(Backend):
                         if self._heat > self.max_heat:
                             break
 
-                    item, on_send = self._out_queue.get()
+                    callback = self._out_queue.get()
 
-                    await self._send(item)
-
-                    if on_send:
-                        await on_send()
-
-                    await self.receive_message('_SENT', item)
+                    await callback()
 
                 if self.running():
                     if self._heat > self.max_heat and self.throttle:
@@ -222,10 +218,17 @@ class DiscordClient(Backend):
                         await trio.sleep(0.05)
 
     def _message_callback(self, target: "discord.TextChannel", message: str):
-        return lambda: target.send(message)
+        async def _inner():
+            await trio_asyncio.aio_as_trio(target.send)(message)
+            await self.receive_message('_SENT', message)
+
+        return _inner
 
     def _message_embed_callback(self, target: "discord.TextChannel", embed: "discord.Embed"):
-        return lambda: target.send(embed=embed)
+        async def _inner():
+            await trio_asyncio.aio_as_trio(target.send)(embed=embed)
+
+        return _inner
 
     async def message(self, target: "discord.TextChannel", message: Union[str, "discord.Embed"], embed: bool = False):
         """Sends a message to a Discord target (nickname or discord.py channel object).
@@ -240,16 +243,14 @@ class DiscordClient(Backend):
             await self.send(self._message_embed_callback(target, message))
 
         else:
-            await self.send(self._message_callback(target, message))
+            await self.send(self._message_callback(target, self._mutate_reply(target, message)))
 
     def message_sync(self, target: "discord.TextChannel", message: Union[str, "discord.Embed"], embed: bool = False):
         if embed:
             self._out_queue.put(self._message_embed_callback(target, message))
 
         else:
-            self._out_queue.put(self._message_callback(target, message))
-
-        #trio_asyncio
+            self._out_queue.put(self._message_callback(target, self._mutate_reply(target, message)))
 
     async def _watch_stop_scopes(self, on_loaded):
         async with trio.open_nursery() as nursery:
@@ -262,9 +263,30 @@ class DiscordClient(Backend):
             nursery.start_soon(_run_until_stopped)
             nursery.start_soon(on_loaded)
 
+    async def _trio_asyncio_start(self):
+        self.client = discord.Client()
+
+        self._setup_client(self.client)
+
+        await self.client.login(self._token)
+        await self.client.connect()
+
+        self._running = False
+
     async def start(self):
         """Starts the Discord client."""
-        await trio_asyncio.aio_as_trio(self.client.start)(self._token)
+
+        self._running = True
+
+        async with trio.open_nursery() as nursery:
+            async def _loaded_stop_scopes():
+                nursery.start_soon(trio_asyncio.aio_as_trio(self._trio_asyncio_start))
+                nursery.start_soon(self._cooldown)
+                nursery.start_soon(self._sender)
+
+            nursery.start_soon(self._watch_stop_scopes, _loaded_stop_scopes)
+
+        self._running = False
 
     async def stop(self):
         self._stopping = True
@@ -279,6 +301,3 @@ class DiscordClient(Backend):
 
         self._running = False
         self._stopping = False
-
-    def post_bot_register(self, bot: "triarc.bot.Bot"):
-        bot.add_alias('message', 'privmsg')

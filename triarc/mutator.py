@@ -2,7 +2,7 @@
 Mutators are extensions that can modify the behavior of Triarc bots.
 """
 
-from triarc.backend import Backend
+import triarc
 
 
 
@@ -15,15 +15,30 @@ class Mutator:
     extensions.
     """
 
-    async def on_any(self, backend: Backend, kind: str, data: any):
+    async def on_any(self, backend: "triarc.backend.Backend", kind: str, data: any):
         """
         This method is called by the Bot whenever any backend
         event is emitted.
-        """
 
-    def modify_message(self, backend: Backend, target: str, message: str) -> str:
+        Arguments:
+            backend {triarc.backend.Backend} -- The backend that caused this event.
+
+            kind {str} -- The kind of backend event.
+            data {any} -- The data of this backend event.
+        """
+        pass
+
+    def modify_message(self, backend: "triarc.backend.Backend", target: any, message: str) -> str:
         """
         Modifies any message sent to a backend target by the Bot.
         Returns the modified version of this message.
+
+        Arguments:
+            backend {triarc.backend.Backend} -- The backend whose outgoing message to be modified.
+
+            target {any} -- The target. This is actually any object that can be
+                            accepted in backend.message, so always use repr()!
+
+            message {str} -- The message.
         """
         return message
