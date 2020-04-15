@@ -222,9 +222,7 @@ class CommandBot(Bot):
 
     async def on_message(self, which: Backend, message: Message):
         try:
-            target = message.target
             line = message.line
-
             line = line.rstrip()
 
             if line.startswith(self.prefix):
@@ -242,7 +240,7 @@ class CommandBot(Bot):
                     # pylint: disable=broad-except
                     except Exception as err:
                         traceback.print_exc()
-                        await self.respond(which, target, '{}: {}'.format(type(err).__name__, str(err)))
+                        await message.reply('{}: {}'.format(type(err).__name__, str(err)))
 
         except Exception:
             traceback.print_exc()
@@ -282,6 +280,8 @@ class CommandBot(Bot):
                     return await definition(which, msg, *args, **kwargs)
 
                 self.commands[name] = _inner
+
+                return definition
 
             if help_string:
                 self.help['commands.' + name] = help_string
