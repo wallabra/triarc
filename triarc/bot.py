@@ -5,7 +5,6 @@ details to the backend(s).
 
 from typing import Optional, Set
 
-import warnings
 import traceback
 import functools
 
