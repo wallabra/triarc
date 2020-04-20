@@ -5,6 +5,7 @@ The Discord backend.
 from typing import Union, Callable
 
 import logging
+import traceback
 import queue
 
 import discord
@@ -25,6 +26,9 @@ class DiscordMessage(Message):
 
     async def reply(self, reply_line):
         await self.backend.message(self.discord_channel, reply_line)
+
+    async def reply_privately(self, reply_line):
+        await self.backend.message(self.discord_author.channel, reply_line)
 
 
 class DiscordClient(Backend):
@@ -218,14 +222,24 @@ class DiscordClient(Backend):
 
     def _message_callback(self, target: "discord.TextChannel", message: str):
         async def _inner():
-            await trio_asyncio.aio_as_trio(target.send)(message)
-            await self.receive_message('_SENT', message)
+            try:
+                await trio_asyncio.aio_as_trio(target.send)(message)
+
+            except discord.errors.Forbidden:
+                traceback.print_exc()
+
+            else:
+                await self.receive_message('_SENT', message)
 
         return _inner
 
     def _message_embed_callback(self, target: "discord.TextChannel", embed: "discord.Embed"):
         async def _inner():
-            await trio_asyncio.aio_as_trio(target.send)(embed=embed)
+            try:
+                await trio_asyncio.aio_as_trio(target.send)(embed=embed)
+
+            except discord.errors.Forbidden:
+                traceback.print_exc()
 
         return _inner
 

@@ -21,7 +21,7 @@ from triarc.bot import Message
 
 class IRCMessage(Message):
     def __init__(self, backend: 'IRCConnection', line, origin, channel):
-        super().__init__(backend, line, origin.split('!')[0], origin, channel, backend.host + '/' + channel)
+        super().__init__(backend, line, origin.split('!')[0], '!'.join(origin.split('!')[1:]), channel, backend.host + '/' + channel)
 
     async def reply(self, reply_line):
         if self.channel == self.backend.nickname:
@@ -29,6 +29,9 @@ class IRCMessage(Message):
 
         else:
             await self.backend.message(self.channel, reply_line)
+
+    async def reply_privately(self, reply_line):
+        await self.backend.message(self.author_name, reply_line)
 
 
 IRC_SOFT_NEWLINE = re.compile(r'\r?\n')
@@ -116,8 +119,9 @@ class IRCConnection(Backend):
             nickserv_user: str = None,
             nickserv_pass: str = None,
             channels: Set[str] = (),
-            pre_join_wait: float = 5.,
+            pre_join_wait: float = 2.5,
             max_heat: int = 4,
+            cloaking_wait: float = 5.5,
             throttle: bool = True,
             cooldown_hertz: float = 1.2,
             ssl_ctx: Optional[ssl.SSLContext] = None,
@@ -151,10 +155,17 @@ class IRCConnection(Backend):
             passw {str} --  The IRC server password used by this connection, if any.
                             (default: None)
 
+            nickserv_user {str} -- The NickServ username to identify to, if any. {default: None}
+            nickserv_user {str} -- The NickServ password to identify with, if any. {default: None}
+
             channels {Set[str]} -- The channels to join after connecting. (default: ())
 
             pre_join_wait {float} --    The time to wait between sending the IRC
-                                         handshake and joining the first channels. (default: 4)
+                                         handshake and joining the first channels. (default: 2.5)
+
+            cloaking_wait {float} -- The additional delay between identifying to NickServ and
+                                     autojoining listed channels. This delay is not awaited if
+                                     there is no NickServ authentication. (default: 5.5)
 
             max_heat {int} --   The maximum 'heat' (messaging spree) before
                                 outgoing data is throttled. (default: 4)
@@ -186,6 +197,7 @@ class IRCConnection(Backend):
         self.passw = passw
         self.join_channels = set(channels)
         self.pre_join_wait = pre_join_wait
+        self.cloaking_wait = cloaking_wait
 
         self._out_queue = queue.Queue()
         self._heat = 0
@@ -202,7 +214,7 @@ class IRCConnection(Backend):
 
         self.auto_do_irc_handshake = auto_do_irc_handshake
 
-        if nickserv_user and nickserv_pass:
+        if nickserv_pass:
             self.nickserv = (nickserv_user, nickserv_pass)
 
         else:
@@ -329,7 +341,7 @@ class IRCConnection(Backend):
             >>> import trio
             >>> conn = IRCConnection('i.have.no.mouth.and.i.must.scream')
             ...
-            >>> @conn.listen('_NUMERIC')
+            >>> @conn.listen('IRC__NUMERIC')
             ... async def print_received(_, msg):
             ...     print(msg)
             ...
@@ -408,11 +420,13 @@ is_numeric=True, kind='404', params=IRCParams(args=['DEATH'], data='AAAAAAAAA'))
             await self.send('NICK ' + self.nickname.split(' ')[0])
             await self.send('USER {} * * :{}'.format(self.nickname.split(' ')[0], self.realname))
 
-            await trio.sleep(self.pre_join_wait)
-
             if self.nickserv:
                 n_user, n_pass = self.nickserv
-                await self.message('NickServ', 'IDENTIFY {} {}'.format(n_user, n_pass))
+                await self.message('NickServ', 'IDENTIFY {}{}'.format(' ' + n_user if n_user else '', n_pass))
+
+                await trio.sleep(self.cloaking_wait)
+
+            await trio.sleep(self.pre_join_wait)
 
             for chan in self.join_channels:
                 await self.join(chan)
@@ -433,95 +447,8 @@ is_numeric=True, kind='404', params=IRCParams(args=['DEATH'], data='AAAAAAAAA'))
             nursery.start_soon(on_loaded)
 
     async def start(self):
-        """Starts the IRC connection.
-
-            >>> import trio
-            >>> import re
-            ...
-            >>> from typing import Union
-            >>> from triarc.backends.irc import IRCConnection, IRC_SOFT_NEWLINE
-            ...
-            ...
-            ...
-            >>> PORT = 51523
-            ...
-            >>> def make_mock_irc_server(cancel_scope: trio.CancelScope):
-            ...     async def mock_irc_server(client: Union[trio.SocketStream, trio.SSLStream]):
-            ...         buffer = ""
-            ...
-            ...         try:
-            ...             async for data in client:
-            ...                 lines = re.split(
-            ...                     IRC_SOFT_NEWLINE, buffer + data.decode('utf-8')
-            ...                 )
-            ...                 buffer = lines.pop()
-            ...
-            ...                 stop = False
-            ...
-            ...                 for l in lines:
-            ...                     if l == '::STOP!':
-            ...                         await client.send_all(
-            ...                             ':mock.server DONE\\r\\n'.encode('utf-8')
-            ...                         )
-            ...                         await client.aclose()
-            ...                         stop = True
-            ...
-            ...                     else:
-            ...                         await client.send_all(
-            ...                             ':mock.server ECHO :{}\\r\\n'.format(l)
-            ...                                 .encode('utf-8')
-            ...                         )
-            ...
-            ...                 if stop:
-            ...                     await cancel_scope.cancel()
-            ...                     break
-            ...
-            ...         except trio.BrokenResourceError:
-            ...             return
-            ...
-            ...     return mock_irc_server
-            ...
-            >>> async def test_irc_server():
-            ...     scope = trio.CancelScope()
-            ...
-            ...     with scope as status:
-            ...         await trio.serve_tcp(make_mock_irc_server(scope), PORT)
-            ...
-            >>> async def test_irc_client():
-            ...     client = IRCConnection('127.0.0.1', PORT, nickname="Triarc", auto_do_irc_handshake=False)
-            ...
-            ...     @client.listen_all()
-            ...     async def on_message(kind, msg):
-            ...         if not kind.startswith('_'):
-            ...             print(msg.line)
-            ...
-            ...     @client.listen('DONE')
-            ...     async def on_done(_, msg):
-            ...         await client.stop()
-            ...
-            ...     async def do_client_things():
-            ...         await trio.sleep(0.1)
-            ...         await client.send_irc_handshake()
-            ...         await client.send('AAA')
-            ...         await client.send('::STOP!')
-            ...
-            ...         return
-            ...
-            ...     async with trio.open_nursery() as new_nursery:
-            ...         new_nursery.start_soon(client.start)
-            ...         new_nursery.start_soon(do_client_things)
-            ...
-            >>> async def run_test():
-            ...     async with trio.open_nursery() as nursery:
-            ...         nursery.start_soon(test_irc_server)
-            ...         nursery.start_soon(test_irc_client)
-            ...
-            >>> trio.run(run_test)
-            ...
-            :mock.server ECHO :NICK Triarc
-            :mock.server ECHO :USER Triarc * * :The awesome Python comms bot framework
-            :mock.server ECHO :AAA
-            :mock.server DONE
+        """
+        Starts the IRC connection.
         """
 
         connection = await trio.open_tcp_stream(self.host, self.port)

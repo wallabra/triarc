@@ -29,6 +29,9 @@ class Message:
     async def reply(self, reply_line):
         pass
 
+    async def reply_privately(self, reply_line):
+        pass
+
     def __repr__(self):
         return '{}({} in {}: {})'.format(type(self).__name__, self.author_name, self.channel, repr(self.line))
 
@@ -44,7 +47,7 @@ class Bot:
             name {str} -- A descriptive name for your Triarc bot.
 
         Keyword Arguments:
-            backends {Set[triarc.backend.Backend]} -- A list of backends for the bot to harness.
+            backends {Set[triarc.backend.Backend]} -- A list of backends for the bot to harness. (default: none)
         """
 
         self.name = name
@@ -141,7 +144,7 @@ class Bot:
             ...     async def on_hello(_, self, name):
             ...         print('Hello, {}!'.format(name))
             ...
-            >>> bot = MyBot([dummy_backend])
+            >>> bot = MyBot('mybot', [dummy_backend])
             ...
             >>> trio.run(dummy_backend.receive_message, 'hello', 'everyone')
             ...
@@ -204,16 +207,17 @@ class CommandBot(Bot):
     add commands, or load plugins that do so.
     """
 
-    def __init__(self, backends: Set[Backend], prefix: str = "'"):
+    def __init__(self, name: str, backends: Set[Backend] = (), prefix: str = "'"):
         """
         Arguments:
-            backend {Set[triarc.backend.Backend]} -- This bot's backend(s).
+            name {str} -- A descriptive name for your Triarc bot.
 
         Keyword Arguments:
+            backend {Set[triarc.backend.Backend]} -- This bot's backend(s). (default: none)
             prefix {str} -- The bot command to use (default: {"'"})
         """
 
-        super().__init__(backends)
+        super().__init__(name, backends)
 
         self.prefix = prefix
         self.commands = {}
@@ -227,8 +231,9 @@ class CommandBot(Bot):
             if line.startswith(self.prefix):
                 line = line[len(self.prefix):]
 
-                cmd = line.split(' ')[0]
-                args = line.split(' ')[1:]
+                tokens = line.split(' ')
+                cmd = tokens[0]
+                args = tokens[1:]
 
                 if cmd in self.commands:
                     try:
@@ -262,7 +267,7 @@ class CommandBot(Bot):
 
 
     def add_command(self, name: str, help_string: Optional[str] = None):
-        """Adds a commannd to this bot, by supplying a define function and an asynchronous
+        """Adds a commannd to this bot, by supplying a 'define' function and an asynchronous
         reply method. Use a closure (decorated with the 'define' argument) to actually define
         the command.
 
@@ -275,10 +280,7 @@ class CommandBot(Bot):
 
         def _decorator(func):
             def define(definition): # definition is the function
-                async def _inner(which: Backend, msg: Message, *args, **kwargs):
-                    return await definition(which, msg, *args, **kwargs)
-
-                self.commands[name] = _inner
+                self.commands[name] = definition
 
                 return definition
 
