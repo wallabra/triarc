@@ -24,11 +24,18 @@ class DiscordMessage(Message):
         self.discord_channel = channel
         self.discord_message = discord_message
 
+    def _split_size(self, line):
+        while line:
+            yield line[:1900]
+            line = line[1900:]
+    
     async def reply(self, reply_line):
-        await self.backend.message(self.discord_channel, reply_line)
+        for line in self._split_size(reply_line):    
+            await self.backend.message(self.discord_channel, line)
 
     async def reply_privately(self, reply_line):
-        await self.backend.message(self.discord_author.channel, reply_line)
+        for line in self._split_size(reply_line):   
+            await self.backend.message(self.discord_author.channel, line)
 
 
 class DiscordClient(Backend):

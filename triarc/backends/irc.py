@@ -23,15 +23,22 @@ class IRCMessage(Message):
     def __init__(self, backend: 'IRCConnection', line, origin, channel):
         super().__init__(backend, line, origin.split('!')[0], '!'.join(origin.split('!')[1:]), channel, backend.host + '/' + channel)
 
-    async def reply(self, reply_line):
-        if self.channel == self.backend.nickname:
-            await self.backend.message(self.author, reply_line)
+    def _split_size(self, line):
+        while line:
+            yield line[:300]
+            line = line[300:]
 
-        else:
-            await self.backend.message(self.channel, reply_line)
+    async def reply(self, reply_line):
+        for line in self._split_size(reply_line):
+            if self.channel == self.backend.nickname:
+                await self.backend.message(self.author, line)
+    
+            else:
+                await self.backend.message(self.channel, line)
 
     async def reply_privately(self, reply_line):
-        await self.backend.message(self.author_name, reply_line)
+        for line in self._split_size(reply_line):
+            await self.backend.message(self.author_name, line)
 
 
 IRC_SOFT_NEWLINE = re.compile(r'\r?\n')
