@@ -188,7 +188,7 @@ class DiscordClient(Backend):
         if self.stop_scope_watcher:
             async def watch_scope(scope):
                 while not scope.cancel_called:
-                    await trio.sleep(0.05)
+                    await trio.sleep(0.2)
 
                 self.stop_scopes.remove(scope)
                 del scope
