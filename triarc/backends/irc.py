@@ -4,13 +4,13 @@ rather rigid with client behavior, which includes throttling
 (and is why throttling is by default enabled).
 """
 
-import re
 import queue
 import ssl
 import logging
+import itertools as itt
 
-from typing import Optional, Set
-from collections import namedtuple
+from typing import Optional, Set, List, Iterable
+from collections import namedtuple, deque
 
 import trio
 
@@ -29,60 +29,132 @@ class IRCMessage(Message):
             line = line[300:]
 
     async def reply(self, reply_line):
-        for line in self._split_size(reply_line):
-            if self.channel == self.backend.nickname:
-                await self.backend.message(self.author, line)
+        if self.channel == self.backend.nickname:
+            await self.reply_privately(reply_line)
+        
+        else:
+            await self.reply_channel(reply_line)
     
-            else:
-                await self.backend.message(self.channel, line)
+    async def reply_channel(self, reply_line):
+        for line in self._split_size(reply_line):
+            await self.backend.message(self.channel, line)
 
     async def reply_privately(self, reply_line):
         for line in self._split_size(reply_line):
             await self.backend.message(self.author_name, line)
 
 
-IRC_SOFT_NEWLINE = re.compile(r'\r?\n')
 
-IRC_RESP_PREFIX = r':([^ \0]+) '
-IRC_RESP_NUMERIC = r'([0-9]{3})'
-IRC_RESP_COMMAND = r'([^ \0]+)'
-IRC_RESP_PARAMS = r'((?: (?:[^\0 \n]*))*?)?(?: :([^\0\n]*))?'
+def isplit(st, sep = ' '):
+    """
+    Splits a string into an iterator.
+    
+       >>> split = isplit('abc def ghi')
+       >>> print(next(split))
+       abc
+       >>> print(next(split))
+       def
+       >>> print(next(split))
+       ghi
+       >>> # to help demonstrate split is empty
+       >>> import itertools as itt
+       >>> print(next(itt.chain(split, ['something after everything else'])))
+       something after everything else
+    """
 
-IRC_RESP = '^{}(?:(?:{})|(?:{})){}$'.format(
-    IRC_RESP_PREFIX,
-    IRC_RESP_NUMERIC,
-    IRC_RESP_COMMAND,
-    IRC_RESP_PARAMS
-)
+    st = iter(st)
 
-IRC_RESP = re.compile(IRC_RESP)
+    buf = []
+
+    for ch in st:
+        print('-', ch, sep)
+    
+        if ch == sep:
+            yield ''.join(buf)
+            buf.clear()
+            
+        else:
+            buf.append(ch)
+        
+    yield ''.join(buf)
+    del buf
+    
+
+def irc_lex_response(resp: str) -> (str, str, str, bool, List[str], Optional[str]):
+    if resp[0] == ':':
+        resp = resp[1:]
+
+    tokens = iter(resp.split(' '))
+    
+    origin = next(tokens)
+    kind = next(tokens)
+
+    if kind.isdigit() and len(kind) == 3:
+        kind = int(kind)
+        is_numeric = True
+
+    else:
+        is_numeric = False
+
+    args = []
+    data = []
+
+    for tok in tokens:
+        if data:
+            data.append(' ' + tok)
+
+        elif tok[0] == ':':
+            data.append(tok[1:])
+
+        else:
+            args.append(tok)
+
+    dataline = ''.join(data)
+    del data
+
+    return (resp, origin, kind, is_numeric, tuple(args), dataline)
 
 
-IRCResponse = namedtuple('IRCResponse', (
-    'line',
-    'origin',
-    'is_numeric',
-    'kind',
-    'params'
-))
 
-IRCParams = namedtuple('IRCParams', (
-    'args',
-    'data'
-))
+class IRCParams:
+    def __init__(self, args: Iterable[str], data: Optional[str] = None):
+        self.args = tuple(args)
+        self.data = data and str(data) or ''
+
+
+class IRCResponse:
+    def __init__(self, line: str, origin: str, is_numeric: int, kind: str, args: List[str], data: Optional[str] = None):
+        self.line = line
+        self.origin = origin
+        self.is_numeric = is_numeric
+        self.kind = kind
+        self.params = IRCParams(args, data)
+        
+    def __repr__(self):
+        return 'IRCResponse({})'.format(repr(self.line))
+        
+    @property
+    def args(self):
+        return self.params.args
+        
+    @property
+    def data(self):
+        return self.params.data
+        
+    @data.setter
+    def data(self, value):
+        self.params.data = value
+
+
 
 def irc_parse_response(resp: str) -> IRCResponse:
     """Parses an IRC server response, according to RFC 1459.
 
-        >>> irc_parse_response(':adams.freenode.net 404 :Not Found')
-        IRCResponse(line=':adams.freenode.net 404 :Not Found', \
-origin='adams.freenode.net', is_numeric=True, kind='404', params=IRCParams(args=[''], \
-data='Not Found'))
+        >>> irc_parse_response(':adams.freenode.net 404 :Not Found').kind
+        404
 
-        >>> irc_parse_response(':adams.freenode.net IS okay :a Good Word')
-        IRCResponse(line=':adams.freenode.net IS okay :a Good Word', \
-origin='adams.freenode.net', is_numeric=False, kind='IS', params=IRCParams(args=['okay'], \
-data='a Good Word'))
+        >>> print(irc_parse_response(':adams.freenode.net IS okay :a Good Word').args[0])
+        okay
 
     Arguments:
         resp {str} -- The IRC response to parse.
@@ -91,24 +163,8 @@ data='a Good Word'))
         IRCResponse -- The parsed representation.
     """
 
-    resp = IRC_RESP.match(resp)
-
-    if not resp:
-        return None
-
-    if resp.group(2):
-        is_numeric = True
-        kind = resp.group(2)
-
-    else:
-        is_numeric = False
-        kind = resp.group(3)
-
-    args = resp.group(4).strip().split(' ')
-    data = resp.group(5)
-
-    params = IRCParams(args, data)
-    return IRCResponse(resp.group(0), resp.group(1), is_numeric, kind, params)
+    resp, origin, kind, is_numeric, args, data = irc_lex_response(resp)
+    return IRCResponse(resp, origin, is_numeric, kind, args, data)
 
 
 class IRCConnection(Backend):
@@ -357,8 +413,7 @@ class IRCConnection(Backend):
             ...
             >>> trio.run(print_a_test)
             ...
-            IRCResponse(line=':skynet.ai 404 DEATH :AAAAAAAAA', origin='skynet.ai', \
-is_numeric=True, kind='404', params=IRCParams(args=['DEATH'], data='AAAAAAAAA'))
+            IRCResponse('skynet.ai 404 DEATH :AAAAAAAAA')
             True
 
         Arguments:
@@ -371,15 +426,15 @@ is_numeric=True, kind='404', params=IRCParams(args=['DEATH'], data='AAAAAAAAA'))
 
         await self.receive_message('_RAW', line)
 
+        if line.split(' ')[0].upper() == 'PING':
+            data = ' '.join(line.split(' ')[1:])
+            await self.send('PONG ' + data)
+
+            return True
+
         response = irc_parse_response(line)
 
         if not response:
-            if line.split(' ')[0].upper() == 'PING':
-                data = ' '.join(line.split(' ')[1:])
-                await self.send('PONG ' + data)
-
-                return True
-
             return False
 
         if response.is_numeric:
@@ -392,22 +447,32 @@ is_numeric=True, kind='404', params=IRCParams(args=['DEATH'], data='AAAAAAAAA'))
 
         if not response.is_numeric and response.kind.upper() == 'PRIVMSG':
             await self.receive_message('MESSAGE', IRCMessage(self, response.params.data, response.origin, response.params.args[0]))
+            
+        if received_kind.upper() == 'PING':
+            await self.send('PONG {} :{}'.format(' '.join(response.args), response.data))
+            
+            return True
 
         return True
 
     async def _receiver(self):
         with self.new_stop_scope():
             while self.running():
-                buffer = ''
-
+                buf = ''
+                
                 try:
                     async for data in self.connection:
-                        lines = re.split(IRC_SOFT_NEWLINE, buffer + data.decode('utf-8'))
-                        buffer = lines.pop()
-
-                        for line in lines:
+                        data = buf + data.decode('utf-8')
+                        
+                        while '\n' in data:
+                            line, data = data.split('\n', 1)    
+                        
+                            if line[-1] in '\r':
+                                line = line[:-1]
+                            
                             await self._receive(line)
 
+                        buf = data
                         await trio.sleep(0.05)
 
                 except (trio.BrokenResourceError, trio.ClosedResourceError):
