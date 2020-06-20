@@ -3,8 +3,7 @@ venv/
 **/__pycache__
 build/
 dist/
-*.code-workspace
+.vscode/
 *.egg-info/
-*.brain
-*.brain-journal
 *.db
+.vscode

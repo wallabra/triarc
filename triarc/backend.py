@@ -2,6 +2,11 @@
 here defined.
 """
 
+import trio
+
+import queue
+import logging
+
 from typing import Set
 
 from triarc.mutator import Mutator
@@ -18,6 +23,9 @@ class Backend:
 
         self._listeners = {}
         self._global_listeners = set()
+
+        self.stop_scopes = set()
+        self.stop_scope_watcher = None # type: trio.NurseryManager
 
     def _register_mutator(self, mutator: Mutator):
         self.mutators.add(mutator)
@@ -160,3 +168,71 @@ class Backend:
             bot {triarc.bot.Bot}: The Bot that wants to register this Backend.
         """
         return False
+
+    async def _watch_stop_scopes(self, on_loaded):
+        async with trio.open_nursery() as nursery:
+            self.stop_scope_watcher = nursery
+
+            async def _run_until_stopped():
+                while self.running():
+                    await trio.sleep(0.05)
+
+            nursery.start_soon(_run_until_stopped)
+            nursery.start_soon(on_loaded)
+
+    def new_stop_scope(self):
+        """Makes a new Trio cancel scope, which is automatically
+        cancelled when the backend is stopped. The backend must
+        be running.
+
+        Raises:
+            RuntimeError: Tried to make a stop scope while the backend isn't running.
+
+        Returns:
+            trio.CancelScope -- The stop scope.
+        """
+        scope = trio.CancelScope()
+        self.stop_scopes.add(scope)
+
+        if self.stop_scope_watcher:
+            async def watch_scope(scope):
+                while not scope.cancel_called:
+                    await trio.sleep(0.2)
+
+                self.stop_scopes.remove(scope)
+                del scope
+
+            self.stop_scope_watcher.start_soon(watch_scope, scope)
+
+        else:
+            raise RuntimeError("Tried to obtain a stop scope while the backend isn't running!")
+
+        return scope
+
+
+class DuplexBackend(Backend):
+    """
+    A backend that supports both asynchronous sending
+    and receiving of message information.
+    """
+
+    def __init__(self, cooldown_hertz: float = 1.2, max_heat: int = 5, throttle: bool = True, logger: logging.Logger = None):
+        super().__init__()
+    
+        self._out_queue = queue.Queue()
+        self._heat = 0
+        self._max_heat = max_heat
+        self.cooldown_hertz = cooldown_hertz
+        self.throttle = throttle
+        self.logger = logger
+
+    def max_heat(self) -> int:
+        """
+        The maximum value self.heat can reach before
+        throttling commences.
+
+        Defaults to self._max_heat.
+        """
+
+        return self._max_heat
+        

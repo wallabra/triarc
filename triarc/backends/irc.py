@@ -14,7 +14,7 @@ from collections import namedtuple, deque
 
 import trio
 
-from triarc.backend import Backend
+from triarc.backend import DuplexBackend
 from triarc.bot import Message
 
 
@@ -167,7 +167,7 @@ def irc_parse_response(resp: str) -> IRCResponse:
     return IRCResponse(resp, origin, is_numeric, kind, args, data)
 
 
-class IRCConnection(Backend):
+class IRCConnection(DuplexBackend):
     """An IRC connection. Used in order to create Triarc bots
     that function on IRC.
     """
@@ -182,13 +182,12 @@ class IRCConnection(Backend):
             nickserv_user: str = None,
             nickserv_pass: str = None,
             channels: Set[str] = (),
-            pre_join_wait: float = 2.5,
-            max_heat: int = 4,
-            cloaking_wait: float = 5.5,
-            throttle: bool = True,
-            cooldown_hertz: float = 1.2,
+            pre_join_wait: float = 3.0,
+            pre_login_wait: float = 5.0,
+            cloaking_wait: float = 2.0,
             ssl_ctx: Optional[ssl.SSLContext] = None,
-            auto_do_irc_handshake=True
+            auto_do_irc_handshake=True,
+            **kwargs
     ):
         """Sets up an IRC connection that can be used as
         a triarc backend.
@@ -223,32 +222,27 @@ class IRCConnection(Backend):
 
             channels {Set[str]} -- The channels to join after connecting. (default: ())
 
-            pre_join_wait {float} --    The time to wait between sending the IRC
-                                         handshake and joining the first channels. (default: 2.5)
+            pre_login_wait {float} -- The time to wait between sending the IRC handshake and
+                                      authentication to NickServ. (default: 3.0)
+
+            pre_join_wait {float} -- The time to wait between sending the IRC
+                                     handshake and joining the first channels.
+                                     Always happens after a NickServ authentication,
+                                     if any, and accumulates with cloaking_wait. (default: 2.5)
 
             cloaking_wait {float} -- The additional delay between identifying to NickServ and
                                      autojoining listed channels. This delay is not awaited if
-                                     there is no NickServ authentication. (default: 5.5)
-
-            max_heat {int} --   The maximum 'heat' (messaging spree) before
-                                outgoing data is throttled. (default: 4)
+                                     there is no NickServ authentication. (default: 2.0)
 
             ssl_ctx {ssl.SSLContext} -- The SSL context used (or None if not using any).
                                         (default: None)
-
-            throttle {bool} --  Whether to throttle. Do not disable unless you know what
-                                you're doing. (default: True)
-
-            cooldown_hertz {float} --   How many times per second throttle heat is cooled down.
-                                        (Values exceeding max_heat, or by default 4, are always
-                                        throttled!)
-
+                                        
             auto_do_irc_handshake {bool} -- Whether to do the IRC handshake (i.e. initial
                                             commands, like USER, NICK, etc.) automatically
                                             when running the start method. (default: true)
         """
 
-        super().__init__()
+        super().__init__(**kwargs)
 
         self.host = host
         self.port = port
@@ -260,20 +254,11 @@ class IRCConnection(Backend):
         self.passw = passw
         self.join_channels = set(channels)
         self.pre_join_wait = pre_join_wait
+        self.pre_login_wait = pre_login_wait
         self.cloaking_wait = cloaking_wait
-
-        self._out_queue = queue.Queue()
-        self._heat = 0
-        self.max_heat = max_heat
-        self.cooldown_hertz = cooldown_hertz
-        self.throttle = throttle
 
         self._running = False
         self._stopping = False
-
-        self.logger = None # type: logging.Logger
-        self.stop_scopes = set()
-        self.stop_scope_watcher = None # type: trio.NurseryManager
 
         self.auto_do_irc_handshake = auto_do_irc_handshake
 
@@ -331,35 +316,6 @@ class IRCConnection(Backend):
             while waiting[0]:
                 await trio.sleep(0.05)
 
-    def new_stop_scope(self):
-        """Makes a new Trio cancel scope, which is automatically
-        cancelled when the backend is stopped. The backend must
-        be running.
-
-        Raises:
-            RuntimeError: Tried to make a stop scope while the backend isn't running.
-
-        Returns:
-            trio.CancelScope -- The stop scope.
-        """
-        scope = trio.CancelScope()
-        self.stop_scopes.add(scope)
-
-        if self.stop_scope_watcher:
-            async def watch_scope(scope):
-                while not scope.cancel_called:
-                    await trio.sleep(0.2)
-
-                self.stop_scopes.remove(scope)
-                del scope
-
-            self.stop_scope_watcher.start_soon(watch_scope, scope)
-
-        else:
-            raise RuntimeError("Tried to obtain a stop scope while the backend isn't running!")
-
-        return scope
-
     async def _sender(self):
         """
         This async loop is responsible for sending messages,
@@ -372,7 +328,7 @@ class IRCConnection(Backend):
                     if self.throttle:
                         self._heat += 1
 
-                        if self._heat > self.max_heat:
+                        if self._heat > self._max_heat:
                             break
 
                     item, on_send = self._out_queue.get()
@@ -385,7 +341,7 @@ class IRCConnection(Backend):
                     await self.receive_message('_SENT', item)
 
                 if self.running():
-                    if self._heat > self.max_heat and self.throttle:
+                    if self._heat > self._max_heat and self.throttle:
                         while self._heat:
                             await trio.sleep(0.2)
 
@@ -493,6 +449,8 @@ class IRCConnection(Backend):
             await self.send('USER {} * * :{}'.format(self.nickname.split(' ')[0], self.realname))
 
             if self.nickserv:
+                await trio.sleep(self.pre_login_wait)
+
                 n_user, n_pass = self.nickserv
                 await self.message('NickServ', 'IDENTIFY {}{}'.format(' ' + n_user if n_user else '', n_pass))
 
@@ -506,17 +464,6 @@ class IRCConnection(Backend):
             # Prevent joining the same channels again (e.g. if the bot is
             # kicked/banned from them and send_irc_handshake is called again).
             self.join_channels = set()
-
-    async def _watch_stop_scopes(self, on_loaded):
-        async with trio.open_nursery() as nursery:
-            self.stop_scope_watcher = nursery
-
-            async def _run_until_stopped():
-                while self.running():
-                    await trio.sleep(0.05)
-
-            nursery.start_soon(_run_until_stopped)
-            nursery.start_soon(on_loaded)
 
     async def start(self):
         """

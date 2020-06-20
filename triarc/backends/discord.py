@@ -12,7 +12,7 @@ import discord
 import trio
 import trio_asyncio
 
-from triarc.backend import Backend
+from triarc.backend import DuplexBackend
 from triarc.bot import Message
 
 
@@ -38,7 +38,7 @@ class DiscordMessage(Message):
             await self.backend.message(self.discord_author.channel, line)
 
 
-class DiscordClient(Backend):
+class DiscordClient(DuplexBackend):
     """
     A Discord backend. Used in order to create Triarc bots
     that function on Discord.
@@ -86,8 +86,6 @@ class DiscordClient(Backend):
         self._stopping = False
 
         self.logger = None # type: logging.Logger
-        self.stop_scopes = set()
-        self.stop_scope_watcher = None # type: trio.NurseryManager
 
     def _setup_client(self, client: "discord.Client"):
         @client.event
@@ -171,35 +169,6 @@ class DiscordClient(Backend):
 
         self._out_queue.put(line)
 
-    def new_stop_scope(self):
-        """Makes a new Trio cancel scope, which is automatically
-        cancelled when the backend is stopped. The backend must
-        be running.
-
-        Raises:
-            RuntimeError: Tried to make a stop scope while the backend isn't running.
-
-        Returns:
-            trio.CancelScope -- The stop scope.
-        """
-        scope = trio.CancelScope()
-        self.stop_scopes.add(scope)
-
-        if self.stop_scope_watcher:
-            async def watch_scope(scope):
-                while not scope.cancel_called:
-                    await trio.sleep(0.2)
-
-                self.stop_scopes.remove(scope)
-                del scope
-
-            self.stop_scope_watcher.start_soon(watch_scope, scope)
-
-        else:
-            raise RuntimeError("Tried to obtain a stop scope while the backend isn't running!")
-
-        return scope
-
     async def _sender(self):
         """
         This async loop is responsible for sending messages,
@@ -271,17 +240,6 @@ class DiscordClient(Backend):
 
         else:
             self._out_queue.put(self._message_callback(target, self._mutate_reply(target, message)))
-
-    async def _watch_stop_scopes(self, on_loaded):
-        async with trio.open_nursery() as nursery:
-            self.stop_scope_watcher = nursery
-
-            async def _run_until_stopped():
-                while self.running():
-                    await trio.sleep(0.05)
-
-            nursery.start_soon(_run_until_stopped)
-            nursery.start_soon(on_loaded)
 
     async def _trio_asyncio_start(self):
         self.client = discord.Client()
