@@ -45,41 +45,6 @@ class IRCMessage(Message):
 
 
 
-def isplit(st, sep = ' '):
-    """
-    Splits a string into an iterator.
-    
-       >>> split = isplit('abc def ghi')
-       >>> print(next(split))
-       abc
-       >>> print(next(split))
-       def
-       >>> print(next(split))
-       ghi
-       >>> # to help demonstrate split is empty
-       >>> import itertools as itt
-       >>> print(next(itt.chain(split, ['something after everything else'])))
-       something after everything else
-    """
-
-    st = iter(st)
-
-    buf = []
-
-    for ch in st:
-        print('-', ch, sep)
-    
-        if ch == sep:
-            yield ''.join(buf)
-            buf.clear()
-            
-        else:
-            buf.append(ch)
-        
-    yield ''.join(buf)
-    del buf
-    
-
 def irc_lex_response(resp: str) -> (str, str, str, bool, List[str], Optional[str]):
     if resp[0] == ':':
         resp = resp[1:]
@@ -442,11 +407,11 @@ class IRCConnection(DuplexBackend):
         """
 
         with self.new_stop_scope():
-            if self.passw:
-                await self.send('PASS {}'.format(self.passw))
-
             await self.send('NICK ' + self.nickname.split(' ')[0])
             await self.send('USER {} * * :{}'.format(self.nickname.split(' ')[0], self.realname))
+
+            if self.passw:
+                await self.send('PASS {}'.format(self.passw))
 
             if self.nickserv:
                 await trio.sleep(self.pre_login_wait)

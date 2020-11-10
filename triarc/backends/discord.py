@@ -34,8 +34,10 @@ class DiscordMessage(Message):
             await self.backend.message(self.discord_channel, line)
 
     async def reply_privately(self, reply_line):
+        channel = self.discord_author.dm_channel or await self.discord_author.create_dm()
+    
         for line in self._split_size(reply_line):   
-            await self.backend.message(self.discord_author.channel, line)
+            await self.backend.message(channel, line)
 
 
 class DiscordClient(DuplexBackend):
