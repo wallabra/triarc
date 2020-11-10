@@ -11,6 +11,7 @@ setuptools.setup(
     description="A trio library for automating responses to commands (bots) and the like. Ships with an IRC backend.",
     keywords='bot network async trio irc',
 
+    install_requires=open(os.path.join(os.path.dirname(__file__), 'requirements.txt')).read().split('\n'),
     long_description=open(os.path.join(os.path.dirname(__file__), 'README.md')).read(),
     packages=['triarc', 'triarc.backends', 'triarc.mutators'],
     classifiers=[
