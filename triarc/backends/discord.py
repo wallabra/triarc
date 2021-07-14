@@ -287,6 +287,9 @@ class DiscordClient(DuplexBackend):
             except discord.errors.Forbidden:
                 traceback.print_exc()
 
+            else:
+                await self.receive_message('_SENT', message.description)
+
         return _inner
 
     def _resolve_target(self, target: Union[str, "discord.TextChannel"]) -> discord.TextChannel:
