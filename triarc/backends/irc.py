@@ -4,13 +4,12 @@ rather rigid with client behavior, which includes throttling
 (and is why throttling is by default enabled).
 """
 
+import itertools as itt
+import logging
 import queue
 import ssl
-import logging
-import itertools as itt
-
-from typing import Optional, Set, List, Iterable
-from collections import namedtuple, deque
+from collections import deque, namedtuple
+from typing import Iterable, List, Optional, Set
 
 import trio
 
@@ -18,10 +17,16 @@ from triarc.backend import DuplexBackend
 from triarc.bot import Message
 
 
-
 class IRCMessage(Message):
-    def __init__(self, backend: 'IRCConnection', line: str, origin: str, channel: str):
-        super().__init__(backend, line, origin.split('!')[0], '!'.join(origin.split('!')[1:]), channel, backend.host + '/' + channel)
+    def __init__(self, backend: "IRCConnection", line: str, origin: str, channel: str):
+        super().__init__(
+            backend,
+            line,
+            origin.split("!")[0],
+            "!".join(origin.split("!")[1:]),
+            channel,
+            backend.host + "/" + channel,
+        )
 
     def _split_size(self, line: str):
         while line:
@@ -39,9 +44,9 @@ class IRCMessage(Message):
         success = True
 
         if reply_reference:
-            if not await self.backend.message(self.channel, "<{}> {}".format(
-                self.author_name, self.line
-            )):
+            if not await self.backend.message(
+                self.channel, "<{}> {}".format(self.author_name, self.line)
+            ):
                 success = False
 
         for line in self._split_size(reply_line):
@@ -54,9 +59,9 @@ class IRCMessage(Message):
         success = True
 
         if reply_reference:
-            if not await self.backend.message(self.channel, "<{}> {}".format(
-                self.author_name, self.line
-            )):
+            if not await self.backend.message(
+                self.channel, "<{}> {}".format(self.author_name, self.line)
+            ):
                 success = False
 
         for line in self._split_size(reply_line):
@@ -65,12 +70,13 @@ class IRCMessage(Message):
 
         return success
 
+
 def irc_lex_response(resp: str) -> (str, str, str, bool, List[str], Optional[str]):
-    if resp[0] == ':':
+    if resp[0] == ":":
         resp = resp[1:]
 
-    tokens = iter(resp.split(' '))
-    
+    tokens = iter(resp.split(" "))
+
     origin = next(tokens)
     kind = next(tokens)
 
@@ -86,50 +92,56 @@ def irc_lex_response(resp: str) -> (str, str, str, bool, List[str], Optional[str
 
     for tok in tokens:
         if data:
-            data.append(' ' + tok)
+            data.append(" " + tok)
 
-        elif tok[0] == ':':
+        elif tok[0] == ":":
             data.append(tok[1:])
 
         else:
             args.append(tok)
 
-    dataline = ''.join(data)
+    dataline = "".join(data)
     del data
 
     return (resp, origin, kind, is_numeric, tuple(args), dataline)
 
 
-
 class IRCParams:
     def __init__(self, args: Iterable[str], data: Optional[str] = None):
         self.args = tuple(args)
-        self.data = data and str(data) or ''
+        self.data = data and str(data) or ""
 
 
 class IRCResponse:
-    def __init__(self, line: str, origin: str, is_numeric: int, kind: str, args: List[str], data: Optional[str] = None):
+    def __init__(
+        self,
+        line: str,
+        origin: str,
+        is_numeric: int,
+        kind: str,
+        args: List[str],
+        data: Optional[str] = None,
+    ):
         self.line = line
         self.origin = origin
         self.is_numeric = is_numeric
         self.kind = kind
         self.params = IRCParams(args, data)
-        
+
     def __repr__(self):
-        return 'IRCResponse({})'.format(repr(self.line))
-        
+        return "IRCResponse({})".format(repr(self.line))
+
     @property
     def args(self):
         return self.params.args
-        
+
     @property
     def data(self):
         return self.params.data
-        
+
     @data.setter
     def data(self, value):
         self.params.data = value
-
 
 
 def irc_parse_response(resp: str) -> IRCResponse:
@@ -158,21 +170,21 @@ class IRCConnection(DuplexBackend):
     """
 
     def __init__(
-            self,
-            host: str,
-            port: int = 6667,
-            nickname: str = 'TriarcBot',
-            realname: str = 'The awesome Python comms bot framework',
-            passw: str = None,
-            nickserv_user: str = None,
-            nickserv_pass: str = None,
-            channels: Set[str] = (),
-            pre_join_wait: float = 3.0,
-            pre_login_wait: float = 5.0,
-            cloaking_wait: float = 2.0,
-            ssl_ctx: Optional[ssl.SSLContext] = None,
-            auto_do_irc_handshake=True,
-            **kwargs
+        self,
+        host: str,
+        port: int = 6667,
+        nickname: str = "TriarcBot",
+        realname: str = "The awesome Python comms bot framework",
+        passw: str = None,
+        nickserv_user: str = None,
+        nickserv_pass: str = None,
+        channels: Set[str] = (),
+        pre_join_wait: float = 3.0,
+        pre_login_wait: float = 5.0,
+        cloaking_wait: float = 2.0,
+        ssl_ctx: Optional[ssl.SSLContext] = None,
+        auto_do_irc_handshake=True,
+        **kwargs
     ):
         """Sets up an IRC connection that can be used as
         a triarc backend.
@@ -221,7 +233,7 @@ class IRCConnection(DuplexBackend):
 
             ssl_ctx {ssl.SSLContext} -- The SSL context used (or None if not using any).
                                         (default: None)
-                                        
+
             auto_do_irc_handshake {bool} -- Whether to do the IRC handshake (i.e. initial
                                             commands, like USER, NICK, etc.) automatically
                                             when running the start method. (default: true)
@@ -231,8 +243,8 @@ class IRCConnection(DuplexBackend):
 
         self.host = host
         self.port = port
-        self.ssl_context = ssl_ctx # type: Optional[ssl.SSLContext]
-        self.connection = None # type: trio.SocketStream | trio.SSLStream
+        self.ssl_context = ssl_ctx  # type: Optional[ssl.SSLContext]
+        self.connection = None  # type: trio.SocketStream | trio.SSLStream
 
         self.nickname = nickname
         self.realname = realname
@@ -323,7 +335,7 @@ class IRCConnection(DuplexBackend):
                     if on_send:
                         await on_send()
 
-                    await self.receive_message('_SENT', item)
+                    await self.receive_message("_SENT", item)
 
                 if self.running():
                     if self._heat > self._max_heat and self.throttle:
@@ -334,7 +346,7 @@ class IRCConnection(DuplexBackend):
                         await trio.sleep(0.05)
 
     async def _send(self, item: str):
-        await self.connection.send_all(str(item).encode('utf-8') + b'\r\n')
+        await self.connection.send_all(str(item).encode("utf-8") + b"\r\n")
 
     async def _receive(self, line: str):
         """
@@ -365,11 +377,11 @@ class IRCConnection(DuplexBackend):
             bool -- Whether the line is valid IRC data.
         """
 
-        await self.receive_message('_RAW', line)
+        await self.receive_message("_RAW", line)
 
-        if line.split(' ')[0].upper() == 'PING':
-            data = ' '.join(line.split(' ')[1:])
-            await self.send('PONG ' + data)
+        if line.split(" ")[0].upper() == "PING":
+            data = " ".join(line.split(" ")[1:])
+            await self.send("PONG " + data)
 
             return True
 
@@ -379,19 +391,26 @@ class IRCConnection(DuplexBackend):
             return False
 
         if response.is_numeric:
-            received_kind = '_NUMERIC'
+            received_kind = "_NUMERIC"
 
         else:
             received_kind = response.kind
 
-        await self.receive_message('IRC_' + received_kind, response)
+        await self.receive_message("IRC_" + received_kind, response)
 
-        if not response.is_numeric and response.kind.upper() == 'PRIVMSG':
-            await self.receive_message('MESSAGE', IRCMessage(self, response.params.data, response.origin, response.params.args[0]))
-            
-        if received_kind.upper() == 'PING':
-            await self.send('PONG {} :{}'.format(' '.join(response.args), response.data))
-            
+        if not response.is_numeric and response.kind.upper() == "PRIVMSG":
+            await self.receive_message(
+                "MESSAGE",
+                IRCMessage(
+                    self, response.params.data, response.origin, response.params.args[0]
+                ),
+            )
+
+        if received_kind.upper() == "PING":
+            await self.send(
+                "PONG {} :{}".format(" ".join(response.args), response.data)
+            )
+
             return True
 
         return True
@@ -399,18 +418,18 @@ class IRCConnection(DuplexBackend):
     async def _receiver(self):
         with self.new_stop_scope():
             while self.running():
-                buf = ''
-                
+                buf = ""
+
                 try:
                     async for data in self.connection:
-                        data = buf + data.decode('utf-8')
-                        
-                        while '\n' in data:
-                            line, data = data.split('\n', 1)    
-                        
-                            if line[-1] in '\r':
+                        data = buf + data.decode("utf-8")
+
+                        while "\n" in data:
+                            line, data = data.split("\n", 1)
+
+                            if line[-1] in "\r":
                                 line = line[:-1]
-                            
+
                             await self._receive(line)
 
                         buf = data
@@ -427,17 +446,22 @@ class IRCConnection(DuplexBackend):
         """
 
         with self.new_stop_scope():
-            await self.send('NICK ' + self.nickname.split(' ')[0])
-            await self.send('USER {} * * :{}'.format(self.nickname.split(' ')[0], self.realname))
+            await self.send("NICK " + self.nickname.split(" ")[0])
+            await self.send(
+                "USER {} * * :{}".format(self.nickname.split(" ")[0], self.realname)
+            )
 
             if self.passw:
-                await self.send('PASS {}'.format(self.passw))
+                await self.send("PASS {}".format(self.passw))
 
             if self.nickserv:
                 await trio.sleep(self.pre_login_wait)
 
                 n_user, n_pass = self.nickserv
-                await self.message('NickServ', 'IDENTIFY {}{}'.format(' ' + n_user if n_user else '', n_pass))
+                await self.message(
+                    "NickServ",
+                    "IDENTIFY {}{}".format(" " + n_user if n_user else "", n_pass),
+                )
 
                 await trio.sleep(self.cloaking_wait)
 
@@ -464,6 +488,7 @@ class IRCConnection(DuplexBackend):
         self._running = True
 
         async with trio.open_nursery() as nursery:
+
             async def _loaded_stop_scopes():
                 nursery.start_soon(self._cooldown)
                 nursery.start_soon(self._sender)
@@ -490,7 +515,7 @@ class IRCConnection(DuplexBackend):
         self._running = False
         self._stopping = False
 
-    #=== IRC commands ===
+    # === IRC commands ===
 
     async def join(self, channel: str, chan_pass: Optional[str] = None):
         """Joins an IRC channel
@@ -503,10 +528,10 @@ class IRCConnection(DuplexBackend):
         """
 
         if chan_pass:
-            await self.send('JOIN {} :{}'.format(channel, chan_pass))
+            await self.send("JOIN {} :{}".format(channel, chan_pass))
 
         else:
-            await self.send('JOIN {}'.format(channel))
+            await self.send("JOIN {}".format(channel))
 
     async def leave(self, channel: str, reason: Optional[str] = None):
         """Leaves an IRC channel.
@@ -520,10 +545,10 @@ class IRCConnection(DuplexBackend):
         """
 
         if reason:
-            await self.send('PART {} :{}'.format(channel, reason))
+            await self.send("PART {} :{}".format(channel, reason))
 
         else:
-            await self.send('PART {}'.format(channel))
+            await self.send("PART {}".format(channel))
 
     async def message(self, target: str, message: str):
         """Sends a message to an IRC target (nickname or channel).
@@ -533,7 +558,9 @@ class IRCConnection(DuplexBackend):
             message {str} -- The message.
         """
 
-        await self.send('PRIVMSG {} :{}'.format(target, self._mutate_reply(target, message)))
+        await self.send(
+            "PRIVMSG {} :{}".format(target, self._mutate_reply(target, message))
+        )
 
     def message_sync(self, target: str, message: str):
-        self._out_queue.put(('PRIVMSG {} :{}'.format(target, message), None))
+        self._out_queue.put(("PRIVMSG {} :{}".format(target, message), None))

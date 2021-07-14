@@ -3,9 +3,10 @@ manage high-level responses, while leaving low-level handling
 details to the backend(s).
 """
 
+import datetime
 import functools
 import traceback
-from typing import Optional, Set
+from typing import Any, Optional, Set
 
 import trio
 
@@ -16,7 +17,15 @@ from triarc.mutator import Mutator
 
 
 class Message:
-    def __init__(self, backend: Backend, line: str, author_name: str, author_addr: str, channel: Any, channel_addr: str):
+    def __init__(
+        self,
+        backend: Backend,
+        line: str,
+        author_name: str,
+        author_addr: str,
+        channel: Any,
+        channel_addr: str,
+    ):
         self.backend = backend
         self.line = line
         self.author_name = author_name
@@ -119,9 +128,7 @@ class Bot:
         Returns: whether the message has been sent. (type: {bool})
         """
 
-        await source.reply(message)
-
-        return True
+        return await source.reply(message)
 
     def any_listener(self, func):
         """
