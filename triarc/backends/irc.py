@@ -28,22 +28,42 @@ class IRCMessage(Message):
             yield line[:300]
             line = line[300:]
 
-    async def reply(self, reply_line):
+    async def reply(self, reply_line: str, reply_reference: bool) -> bool:
         if self.channel == self.backend.nickname:
             await self.reply_privately(reply_line)
-        
+
         else:
             await self.reply_channel(reply_line)
-    
-    async def reply_channel(self, reply_line):
+
+    async def reply_channel(self, reply_line: str, reply_reference: bool) -> bool:
+        success = True
+
+        if reply_reference:
+            if not await self.backend.message(self.channel, "<{}> {}".format(
+                self.author_name, self.line
+            )):
+                success = False
+
         for line in self._split_size(reply_line):
-            await self.backend.message(self.channel, line)
+            if not await self.backend.message(self.channel, line):
+                success = False
 
-    async def reply_privately(self, reply_line):
+        return success
+
+    async def reply_privately(self, reply_line: str, reply_reference: bool) -> bool:
+        success = True
+
+        if reply_reference:
+            if not await self.backend.message(self.channel, "<{}> {}".format(
+                self.author_name, self.line
+            )):
+                success = False
+
         for line in self._split_size(reply_line):
-            await self.backend.message(self.author_name, line)
+            if not await self.backend.message(self.channel, line):
+                success = False
 
-
+        return success
 
 def irc_lex_response(resp: str) -> (str, str, str, bool, List[str], Optional[str]):
     if resp[0] == ':':

@@ -35,16 +35,35 @@ class DiscordMessage(Message):
             yield line[:1900]
             line = line[1900:]
 
-    async def reply(self, reply_line):
-        for line in self._split_size(reply_line):
-            await self.backend.message(self.discord_channel, line)
+    async def reply(self, reply_line: str, reply_reference: bool) -> bool:
+        reply_reference = True
+        success = True
 
-    async def reply_privately(self, reply_line):
+        for line in self._split_size(reply_line):
+            if not await self.backend.message(
+                self.discord_channel, line,
+                reference=self.discord_message if reply_reference else None
+            ):
+                success = False
+
+            reply_reference = False
+
+        return success
+
+    async def reply_privately(self, reply_line: str, reply_reference: bool) -> bool:
         channel = self.discord_author.dm_channel or await self.discord_author.create_dm()
+        success = True
 
         for line in self._split_size(reply_line):
-            await self.backend.message(channel, line)
+            if not await self.backend.message(
+                channel, line,
+                reference=self.discord_message if reply_reference else None
+            ):
+                success = False
 
+            reply_reference = False
+
+        return success
 
 class DiscordClient(DuplexBackend):
     """
@@ -110,7 +129,7 @@ class DiscordClient(DuplexBackend):
                 return
 
             for line in message.content.split('\n'):
-                await self.receive_message('MESSAGE', DiscordMessage(self, line, message.author, message.channel, message))
+                await self.receive_message('MESSAGE', DiscordMessage(self, line, message))
 
         @client.event
         async def on_ready():
@@ -243,10 +262,12 @@ class DiscordClient(DuplexBackend):
 
                 self._last_send_time = time.time()
 
-    def _message_callback(self, target: "discord.TextChannel", message: str):
+    def _message_callback(self, target: "discord.TextChannel", message: str, reference: Optional[
+      Union[discord.Message, discord.MessageReference]
+    ] = None):
         async def _inner():
             try:
-                await trio_asyncio.aio_as_trio(target.send)(message)
+                await trio_asyncio.aio_as_trio(target.send)(message, reference=reference)
 
             except discord.errors.Forbidden:
                 traceback.print_exc()
@@ -256,10 +277,12 @@ class DiscordClient(DuplexBackend):
 
         return _inner
 
-    def _message_embed_callback(self, target: "discord.TextChannel", embed: "discord.Embed"):
+    def _message_embed_callback(self, target: "discord.TextChannel", embed: "discord.Embed", reference: Optional[
+      Union[discord.Message, discord.MessageReference]
+    ] = None):
         async def _inner():
             try:
-                await trio_asyncio.aio_as_trio(target.send)(embed=embed)
+                await trio_asyncio.aio_as_trio(target.send)(embed=embed, reference=reference)
 
             except discord.errors.Forbidden:
                 traceback.print_exc()
@@ -308,13 +331,20 @@ class DiscordClient(DuplexBackend):
                 for line in field.value.split('\n')
             )
 
-    async def message(self, target: Union[str, "discord.TextChannel"], message: Union[str, "discord.Embed"], embed: bool = False):
+    async def message(self,
+                      target: Union[str, "discord.TextChannel"],
+                      message: Union[str, "discord.Embed"],
+                      embed: bool = False,
+                      reference: Optional[
+                        Union[discord.Message, discord.MessageReference]
+                      ] = None):
         """Sends a message to a Discord target (nickname or discord.py channel object).
 
         Arguments:
             target {discord.TextChannel} -- The Discord target. Can be a channel object or a string ID.
             message {str} -- The message.
             embed {bool} -- If true, the message should be sent as a Discord embed rather than a string. https://discordpy.readthedocs.io/en/latest/api.html#embed
+            reference {Optional[Union[discord.Message, discord.MessageReference]]} -- If not None, a message to be referred to as in a reply.
         """
 
         target = self._resolve_target(target)
@@ -324,14 +354,20 @@ class DiscordClient(DuplexBackend):
 
         if embed:
             self._mutate_embed(target, message)
-            await self.send(self._message_embed_callback(target, message))
+            await self.send(self._message_embed_callback(target, message, reference=reference))
 
         else:
-            await self.send(self._message_callback(target, self._mutate_reply(str(target.id), message)))
+            await self.send(self._message_callback(target, self._mutate_reply(str(target.id), message), reference=reference))
 
         return True
 
-    def message_sync(self, target: Union[str, "discord.TextChannel"], message: Union[str, "discord.Embed"], embed: bool = False) -> bool:
+    def message_sync(self,
+                     target: Union[str, "discord.TextChannel"],
+                     message: Union[str, "discord.Embed"],
+                     embed: bool = False,
+                     reference: Optional[
+                       Union[discord.Message, discord.MessageReference]
+                     ] = None) -> bool:
         target = self._resolve_target(target)
 
         if target is None:
@@ -339,10 +375,10 @@ class DiscordClient(DuplexBackend):
 
         if embed:
             self._mutate_embed(target, message)
-            self._out_queue.put(self._message_embed_callback(target, message))
+            self._out_queue.put(self._message_embed_callback(target, message, reference=reference))
 
         else:
-            self._out_queue.put(self._message_callback(target, self._mutate_reply(str(target.id), message)))
+            self._out_queue.put(self._message_callback(target, self._mutate_reply(str(target.id), message), reference=reference))
 
         return True
 
