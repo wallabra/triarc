@@ -4,6 +4,7 @@ The Discord backend.
 
 from typing import Union, Callable
 
+import time
 import logging
 import traceback
 import queue
@@ -51,7 +52,8 @@ class DiscordClient(DuplexBackend):
         token: str,
         max_heat: int = 4,
         throttle: bool = True,
-        cooldown_hertz: float = 1.2
+        cooldown_hertz: float = 1.2,
+        min_send_interval: float = 0.25
     ):
         """
         Prepares a Discord bot session, via the
@@ -64,6 +66,9 @@ class DiscordClient(DuplexBackend):
         Keyword Arguments:
             max_heat {int} --   The maximum 'heat' (messaging spree) before
                                 outgoing data is throttled. (default: 4)
+
+            min_send_interval {float} --  The minimum amount of time, per second, between
+                                          each sent message.
 
             throttle {bool} --  Whether to throttle. Do not disable unless you know what
                                 you're doing. (default: True)
@@ -78,14 +83,18 @@ class DiscordClient(DuplexBackend):
         self._token = token
         self.nickname = None
 
-        self._out_queue = queue.Queue()
+        self._out_queue_in = None
+        self._out_queue_out = None
         self._heat = 0
         self.max_heat = max_heat
         self.cooldown_hertz = cooldown_hertz
         self.throttle = throttle
+        self._overheated = False
+        self.min_send_interval = min_send_interval
 
         self._running = False
         self._stopping = False
+        self._last_send_time = 0.0
 
         self.logger = None # type: logging.Logger
 
@@ -144,9 +153,11 @@ class DiscordClient(DuplexBackend):
 
     async def _cooldown(self):
         """
-        This async loop is responsible for 'cooling' the bot
-        down, at a specified frequency. It's part of the
-        throttling mechanism.
+        Deprecated and now unused.
+        
+        This async loop used to be responsible for 'cooling'
+        the bot down, at a specified frequency. It used to
+        be part of the throttling mechanism.
         """
 
         if self.throttle:
@@ -169,7 +180,37 @@ class DiscordClient(DuplexBackend):
                                when sending.
         """
 
-        self._out_queue.put(line)
+        await self._out_queue_in.send(line)
+
+    def next_send_time(self):
+        """
+        Finds the next time where it will be acceptable
+        to send another message, according to cooldown
+        metrics.
+        """
+
+        base = self._last_send_time + self.min_send_interval
+
+        if self._overheated:
+            return base + self._heat / self.cooldown_hertz
+
+        else:
+            return base
+
+    def heat_up(self):
+        self._heat += 1
+
+        if self._heat > self._max_heat:
+            self._overheated = True
+
+    def heat_down(self):
+        self._heat -= 1
+
+        if self._heat <= 0:
+            self._heat = 0
+
+            if self._overheated:
+                self._overheated = False
 
     async def _sender(self):
         """
@@ -179,24 +220,23 @@ class DiscordClient(DuplexBackend):
 
         with self.new_stop_scope():
             while self.running():
-                while not self._out_queue.empty():
-                    if self.throttle:
-                        self._heat += 1
+                if self.throttle:
+                    self.heat_up()
+                    self._heat += 1
 
-                        if self._heat > self.max_heat:
-                            break
+                    if self._heat > self._max_heat:
+                        await trio.sleep(1.0 / self.cooldown_hertz)
+                        self.heat_down()
+            
+                next_time = self.next_send_time()
 
-                    callback = self._out_queue.get()
+                if next_time < time.time():
+                    await trio.sleep(time.time() - next_time)
 
-                    await callback()
+                callback = await self._out_queue_out.receive()
+                await callback()
 
-                if self.running():
-                    if self._heat > self.max_heat and self.throttle:
-                        while self._heat:
-                            await trio.sleep(0.2)
-
-                    else:
-                        await trio.sleep(0.05)
+                self._last_send_time = time.time()
 
     def _message_callback(self, target: "discord.TextChannel", message: str):
         async def _inner():
@@ -258,17 +298,26 @@ class DiscordClient(DuplexBackend):
 
         self._running = True
 
-        async with trio.open_nursery() as nursery:
-            async def _loaded_stop_scopes():
-                nursery.start_soon(trio_asyncio.aio_as_trio(self._trio_asyncio_start))
-                nursery.start_soon(self._cooldown)
-                nursery.start_soon(self._sender)
+        try:
+            self._out_queue_in, self._out_queue_out = trio.open_memory_channel(0)
 
-            nursery.start_soon(self._watch_stop_scopes, _loaded_stop_scopes)
+            async with trio.open_nursery() as nursery:
+                async def _loaded_stop_scopes():
+                    #nursery.start_soon(self._cooldown)
+                    nursery.start_soon(self._sender)
+                    nursery.start_soon(trio_asyncio.aio_as_trio(self._trio_asyncio_start))
 
-        self._running = False
+                nursery.start_soon(self._watch_stop_scopes, _loaded_stop_scopes)
+
+        finally:
+            await self._out_queue_out.aclose()
+
+            self._running = False
 
     async def stop(self):
+        if not self.running():
+            return False
+    
         self._stopping = True
 
         for scope in self.stop_scopes:
@@ -281,3 +330,8 @@ class DiscordClient(DuplexBackend):
 
         self._running = False
         self._stopping = False
+
+        return True
+
+    def deinit(self):
+        self._out_queue_in.aclose()
