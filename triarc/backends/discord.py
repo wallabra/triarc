@@ -8,6 +8,7 @@ import time
 import logging
 import traceback
 import queue
+import warnings
 
 import discord
 import trio
@@ -15,6 +16,10 @@ import trio_asyncio
 
 from triarc.backend import DuplexBackend
 from triarc.bot import Message
+
+
+class UnknownChannelWarning(warnings.UserWarning):
+    pass
 
 
 class DiscordMessage(Message):
@@ -29,15 +34,15 @@ class DiscordMessage(Message):
         while line:
             yield line[:1900]
             line = line[1900:]
-    
+
     async def reply(self, reply_line):
-        for line in self._split_size(reply_line):    
+        for line in self._split_size(reply_line):
             await self.backend.message(self.discord_channel, line)
 
     async def reply_privately(self, reply_line):
         channel = self.discord_author.dm_channel or await self.discord_author.create_dm()
-    
-        for line in self._split_size(reply_line):   
+
+        for line in self._split_size(reply_line):
             await self.backend.message(channel, line)
 
 
@@ -154,7 +159,7 @@ class DiscordClient(DuplexBackend):
     async def _cooldown(self):
         """
         Deprecated and now unused.
-        
+
         This async loop used to be responsible for 'cooling'
         the bot down, at a specified frequency. It used to
         be part of the throttling mechanism.
@@ -227,7 +232,7 @@ class DiscordClient(DuplexBackend):
                     if self._heat > self._max_heat:
                         await trio.sleep(1.0 / self.cooldown_hertz)
                         self.heat_down()
-            
+
                 next_time = self.next_send_time()
 
                 if next_time < time.time():
@@ -261,14 +266,40 @@ class DiscordClient(DuplexBackend):
 
         return _inner
 
-    async def message(self, target: "discord.TextChannel", message: Union[str, "discord.Embed"], embed: bool = False):
+    def _resolve_target(self, target: Union[str, "discord.TextChannel"]) -> discord.TextChannel:
+        """Resolves a target argument and ensures that a discord.TextChannel is returned."""
+        if not hasattr(target, 'send'):
+            # Most likely a str, even if a stringified int
+            assert instanceof(target, str)
+
+            orig = target # for error message purposes
+
+            try:
+                target = self.client.get_channel(int(target))
+
+            except ValueError:
+                raise ValueError("Invalid Discord channel ID passed: must be a numeric string, got {}".format(repr(orig)))
+
+            if target is None:
+                # chanenl not found
+                warnings.warn(UnknownChannelWarning("Message target Discord channel ID {} does not exist or was not found".format(int(orig))))
+                return None
+
+        return target
+
+    async def message(self, target: Union[str, "discord.TextChannel"], message: Union[str, "discord.Embed"], embed: bool = False):
         """Sends a message to a Discord target (nickname or discord.py channel object).
 
         Arguments:
-            target {discord.TextChannel} -- The Discord target. Is a channel object.
+            target {discord.TextChannel} -- The Discord target. Can be a channel object or a string ID.
             message {str} -- The message.
             embed {bool} -- If true, the message should be sent as a Discord embed rather than a string. https://discordpy.readthedocs.io/en/latest/api.html#embed
         """
+
+        target = self._resolve_target(target)
+
+        if target is None:
+            return False
 
         if embed:
             await self.send(self._message_embed_callback(target, message))
@@ -276,12 +307,22 @@ class DiscordClient(DuplexBackend):
         else:
             await self.send(self._message_callback(target, self._mutate_reply(target, message)))
 
-    def message_sync(self, target: "discord.TextChannel", message: Union[str, "discord.Embed"], embed: bool = False):
+        return True
+
+    def message_sync(self, target: Union[str, "discord.TextChannel"], message: Union[str, "discord.Embed"], embed: bool = False) -> bool:
+        target = self._resolve_target(target)
+
+        if target is None:
+            return False
+
         if embed:
+            # WIP: mutate embeds as well
             self._out_queue.put(self._message_embed_callback(target, message))
 
         else:
             self._out_queue.put(self._message_callback(target, self._mutate_reply(target, message)))
+
+        return True
 
     async def _trio_asyncio_start(self):
         self.client = discord.Client()
@@ -303,7 +344,7 @@ class DiscordClient(DuplexBackend):
 
             async with trio.open_nursery() as nursery:
                 async def _loaded_stop_scopes():
-                    #nursery.start_soon(self._cooldown)
+                    # nursery.start_soon(self._cooldown)
                     nursery.start_soon(self._sender)
                     nursery.start_soon(trio_asyncio.aio_as_trio(self._trio_asyncio_start))
 
@@ -317,7 +358,7 @@ class DiscordClient(DuplexBackend):
     async def stop(self):
         if not self.running():
             return False
-    
+
         self._stopping = True
 
         for scope in self.stop_scopes:
