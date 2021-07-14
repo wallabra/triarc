@@ -20,10 +20,10 @@ from triarc.bot import Message
 
 
 class IRCMessage(Message):
-    def __init__(self, backend: 'IRCConnection', line, origin, channel):
+    def __init__(self, backend: 'IRCConnection', line: str, origin: str, channel: str):
         super().__init__(backend, line, origin.split('!')[0], '!'.join(origin.split('!')[1:]), channel, backend.host + '/' + channel)
 
-    def _split_size(self, line):
+    def _split_size(self, line: str):
         while line:
             yield line[:300]
             line = line[300:]

@@ -16,21 +16,28 @@ from triarc.mutator import Mutator
 
 
 class Message:
-    def __init__(self, backend, line, author_name, author_addr, channel, channel_addr):
+    def __init__(self, backend: Backend, line: str, author_name: str, author_addr: str, channel: Any, channel_addr: str):
         self.backend = backend
         self.line = line
         self.author_name = author_name
         self.author_addr = author_addr
         self.channel = channel
         self.channel_addr = channel_addr
+        self.when = datetime.datetime.now()
 
-    async def reply(self, reply_line):
+    async def reply(self, reply_line: str, reply_reference: bool) -> bool:
+        """Replies back at the message anyhow."""
         pass
 
-    async def reply_privately(self, reply_line):
+    async def reply_channel(self, reply_line: str, reply_reference: bool) -> bool:
+        """Replies back directly to the channel, if said distinction is applicable."""
         pass
 
-    def __repr__(self):
+    async def reply_privately(self, reply_line: str, reply_reference: bool) -> bool:
+        """Replies back directly to the author."""
+        pass
+
+    def __repr__(self) -> str:
         return "{}({} in {}: {})".format(
             type(self).__name__, self.author_name, self.channel, repr(self.line)
         )

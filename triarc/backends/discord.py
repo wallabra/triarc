@@ -23,14 +23,18 @@ class UnknownChannelWarning(warnings.UserWarning):
 
 
 class DiscordMessage(Message):
-    def __init__(self, backend, line, author, channel, discord_message):
+    """A message received via the Discord backend."""
+
+    def __init__(self, backend: str, line: str, discord_message: discord.Message):
+        author, channel = message.author, message.channel
+
         super().__init__(backend, line, author.name, author.id, '#' + getattr(channel, 'recipient', channel).name, str(channel.id))
 
         self.discord_author  = author
         self.discord_channel = channel
         self.discord_message = discord_message
 
-    def _split_size(self, line):
+    def _split_size(self, line: str):
         while line:
             yield line[:1900]
             line = line[1900:]
@@ -49,6 +53,9 @@ class DiscordMessage(Message):
             reply_reference = False
 
         return success
+
+    async def reply_channel(self, reply_line: str, reply_reference: bool) -> bool:
+        await self.reply(reply_line, reply_reference) # it's the same!
 
     async def reply_privately(self, reply_line: str, reply_reference: bool) -> bool:
         channel = self.discord_author.dm_channel or await self.discord_author.create_dm()
