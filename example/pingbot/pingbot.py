@@ -42,7 +42,7 @@ BOT = MySimpleBot(
     "pingbot",
     [
         IRCConnection(
-            host="irc.freenode.net",
+            host="irc.libeta.chat",
             port=6667,
             channels=set(
                 x.strip()

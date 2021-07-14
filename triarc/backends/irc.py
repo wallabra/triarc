@@ -147,10 +147,10 @@ class IRCResponse:
 def irc_parse_response(resp: str) -> IRCResponse:
     """Parses an IRC server response, according to RFC 1459.
 
-        >>> irc_parse_response(':adams.freenode.net 404 :Not Found').kind
+        >>> irc_parse_response(':zirconium.libera.chat 404 :Not Found').kind
         404
 
-        >>> print(irc_parse_response(':adams.freenode.net IS okay :a Good Word').args[0])
+        >>> print(irc_parse_response(':zirconium.libera.chat IS okay :a Good Word').args[0])
         okay
 
     Arguments:
