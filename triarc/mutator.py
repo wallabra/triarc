@@ -5,7 +5,6 @@ Mutators are extensions that can modify the behavior of Triarc bots.
 import triarc
 
 
-
 class Mutator:
     """
     The base Mutator superclass. Supposed to be subclassed.
@@ -28,7 +27,9 @@ class Mutator:
         """
         pass
 
-    def modify_message(self, backend: "triarc.backend.Backend", target: any, message: str) -> str:
+    def modify_message(
+        self, backend: "triarc.backend.Backend", target: any, message: str
+    ) -> str:
         """
         Modifies any message sent to a backend target by the Bot.
         Returns the modified version of this message.

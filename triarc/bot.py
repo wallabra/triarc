@@ -3,18 +3,16 @@ manage high-level responses, while leaving low-level handling
 details to the backend(s).
 """
 
+import functools
+import traceback
 from typing import Optional, Set
 
-import traceback
-import functools
-
 import trio
+
 import triarc
-
 from triarc.backend import Backend
-from triarc.mutator import Mutator
 from triarc.errors import TriarcBotBackendRefusedError
-
+from triarc.mutator import Mutator
 
 
 class Message:
@@ -33,7 +31,9 @@ class Message:
         pass
 
     def __repr__(self):
-        return '{}({} in {}: {})'.format(type(self).__name__, self.author_name, self.channel, repr(self.line))
+        return "{}({} in {}: {})".format(
+            type(self).__name__, self.author_name, self.channel, repr(self.line)
+        )
 
 
 class Bot:
@@ -51,8 +51,8 @@ class Bot:
         """
 
         self.name = name
-        self.mutators = set() # type: Set[Mutator]
-        self.backends = set() # type: Set[Backend]
+        self.mutators = set()  # type: Set[Mutator]
+        self.backends = set()  # type: Set[Backend]
 
         backends = set(backends)
 
@@ -97,7 +97,9 @@ class Bot:
             backend.post_bot_register(self)
 
         elif required:
-            raise TriarcBotBackendRefusedError("Backend", backend, "refused to be registered by bot", self)
+            raise TriarcBotBackendRefusedError(
+                "Backend", backend, "refused to be registered by bot", self
+            )
 
     async def respond(self, which: Backend, source: Message, message: str) -> bool:
         """Replies to commands. Deprecated; use Message.reply instead!
@@ -134,26 +136,26 @@ class Bot:
         """
         pass
 
-    async def _specific_on_relay(self, which: Backend, kind, data, _sent = ()):
+    async def _specific_on_relay(self, which: Backend, kind, data, _sent=()):
         """
-            >>> import trio
-            ...
-            >>> dummy_backend = Backend()
-            ...
-            >>> class MyBot(Bot):
-            ...     async def on_hello(_, self, name):
-            ...         print('Hello, {}!'.format(name))
-            ...
-            >>> bot = MyBot('mybot', [dummy_backend])
-            ...
-            >>> trio.run(dummy_backend.receive_message, 'hello', 'everyone')
-            ...
-            Hello, everyone!
+        >>> import trio
+        ...
+        >>> dummy_backend = Backend()
+        ...
+        >>> class MyBot(Bot):
+        ...     async def on_hello(_, self, name):
+        ...         print('Hello, {}!'.format(name))
+        ...
+        >>> bot = MyBot('mybot', [dummy_backend])
+        ...
+        >>> trio.run(dummy_backend.receive_message, 'hello', 'everyone')
+        ...
+        Hello, everyone!
         """
 
         _sent = set(_sent) | {kind}
 
-        func_name = 'on_{}'.format(kind.lower())
+        func_name = "on_{}".format(kind.lower())
 
         for mutator in self.mutators:
             await mutator.on_any(which, kind, data)
@@ -196,7 +198,9 @@ class Bot:
         self.deinit()
 
     def __repr__(self):
-        return "{}('{}': {} backends)".format(type(self).__name__, self.name, len(self.backends))
+        return "{}('{}': {} backends)".format(
+            type(self).__name__, self.name, len(self.backends)
+        )
 
 
 class CommandBot(Bot):
@@ -229,9 +233,9 @@ class CommandBot(Bot):
             line = line.rstrip()
 
             if line.startswith(self.prefix):
-                line = line[len(self.prefix):]
+                line = line[len(self.prefix) :]
 
-                tokens = line.split(' ')
+                tokens = line.split(" ")
                 cmd = tokens[0]
                 args = tokens[1:]
 
@@ -244,13 +248,17 @@ class CommandBot(Bot):
                     # pylint: disable=broad-except
                     except Exception as err:
                         traceback.print_exc()
-                        await message.reply('{}: {}'.format(type(err).__name__, str(err)))
+                        await message.reply(
+                            "{}: {}".format(type(err).__name__, str(err))
+                        )
 
         except Exception:
             traceback.print_exc()
             raise
 
-    async def read(self, which: Backend, target: any, message: str, data: "triarc.irc.IRCResponse"):
+    async def read(
+        self, which: Backend, target: any, message: str, data: "triarc.irc.IRCResponse"
+    ):
         """
         Deprecated method. Do not use.
 
@@ -263,8 +271,9 @@ class CommandBot(Bot):
             data {IRCResponse} --   An IRC response object.
         """
 
-        await self.on_message(which, Message(which, message, data.origin, data.origin, target))
-
+        await self.on_message(
+            which, Message(which, message, data.origin, data.origin, target)
+        )
 
     def add_command(self, name: str, help_string: Optional[str] = None):
         """Adds a commannd to this bot, by supplying a 'define' function and an asynchronous
@@ -279,13 +288,13 @@ class CommandBot(Bot):
         """
 
         def _decorator(func):
-            def define(definition): # definition is the function
+            def define(definition):  # definition is the function
                 self.commands[name] = definition
 
                 return definition
 
             if help_string:
-                self.help['commands.' + name] = help_string
+                self.help["commands." + name] = help_string
 
             return func(define)
 

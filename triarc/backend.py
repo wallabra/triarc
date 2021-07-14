@@ -2,15 +2,13 @@
 here defined.
 """
 
-import trio
-
-import queue
 import logging
-
+import queue
 from typing import Set
 
-from triarc.mutator import Mutator
+import trio
 
+from triarc.mutator import Mutator
 
 
 class Backend:
@@ -19,13 +17,13 @@ class Backend:
     expected (and thus required) by the Triarc bot that will eventually use it."""
 
     def __init__(self):
-        self.mutators = set() # type: Set[Mutator]
+        self.mutators = set()  # type: Set[Mutator]
 
         self._listeners = {}
         self._global_listeners = set()
 
         self.stop_scopes = set()
-        self.stop_scope_watcher = None # type: trio.NurseryManager
+        self.stop_scope_watcher = None  # type: trio.NurseryManager
 
     def _register_mutator(self, mutator: Mutator):
         self.mutators.add(mutator)
@@ -36,7 +34,7 @@ class Backend:
 
         return reply
 
-    def listen(self, name: str = '_'):
+    def listen(self, name: str = "_"):
         """Adds a listener for specific messages received in this backend.
         Use as a decorator generating method.
 
@@ -111,7 +109,7 @@ class Backend:
         for listener in lists:
             await listener(kind, data)
 
-        #async with trio.open_nursery() as nursery:
+        # async with trio.open_nursery() as nursery:
         #    for listener in lists:
         #        nursery.start_soon(listener, kind, data)
 
@@ -195,6 +193,7 @@ class Backend:
         self.stop_scopes.add(scope)
 
         if self.stop_scope_watcher:
+
             async def watch_scope(scope):
                 while not scope.cancel_called:
                     await trio.sleep(0.2)
@@ -205,7 +204,9 @@ class Backend:
             self.stop_scope_watcher.start_soon(watch_scope, scope)
 
         else:
-            raise RuntimeError("Tried to obtain a stop scope while the backend isn't running!")
+            raise RuntimeError(
+                "Tried to obtain a stop scope while the backend isn't running!"
+            )
 
         return scope
 
@@ -216,9 +217,15 @@ class DuplexBackend(Backend):
     and receiving of message information.
     """
 
-    def __init__(self, cooldown_hertz: float = 1.2, max_heat: int = 5, throttle: bool = True, logger: logging.Logger = None):
+    def __init__(
+        self,
+        cooldown_hertz: float = 1.2,
+        max_heat: int = 5,
+        throttle: bool = True,
+        logger: logging.Logger = None,
+    ):
         super().__init__()
-    
+
         self._out_queue = queue.Queue()
         self._heat = 0
         self._max_heat = max_heat
@@ -235,4 +242,3 @@ class DuplexBackend(Backend):
         """
 
         return self._max_heat
-        
