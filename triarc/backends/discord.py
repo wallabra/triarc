@@ -7,7 +7,7 @@ import queue
 import time
 import traceback
 import warnings
-from typing import Callable, Union
+from typing import Callable, Union, Optional
 
 import discord
 import trio
@@ -25,7 +25,7 @@ class DiscordMessage(Message):
     """A message received via the Discord backend."""
 
     def __init__(self, backend: str, line: str, discord_message: discord.Message):
-        author, channel = message.author, message.channel
+        author, channel = discord_message.author, discord_message.channel
 
         super().__init__(
             backend,
@@ -318,7 +318,7 @@ class DiscordClient(DuplexBackend):
                 traceback.print_exc()
 
             else:
-                await self.receive_message("_SENT", message.description)
+                await self.receive_message("_SENT", embed.description)
 
         return _inner
 
@@ -328,7 +328,7 @@ class DiscordClient(DuplexBackend):
         """Resolves a target argument and ensures that a discord.TextChannel is returned."""
         if not hasattr(target, "send"):
             # Most likely a str, even if a stringified int
-            assert instanceof(target, str)
+            assert isinstance(target, str)
 
             orig = target  # for error message purposes
 
