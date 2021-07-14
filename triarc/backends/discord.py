@@ -287,6 +287,27 @@ class DiscordClient(DuplexBackend):
 
         return target
 
+    def _mutate_embed(self, target: discord.TextChannel, message: discord.Embed):
+        """Mutate a Discord embed by the same mutators governing text replies."""
+
+        channel_id = str(target.id)
+
+        # Mutate the embed's description.
+
+        if message.description.strip():
+            message.description = '\n'.join(
+                self._mutate_reply(channel_id, line)
+                for line in message.description.split('\n')
+            )
+
+        # Mutate the embed's fields.
+
+        for field in message.fields:
+            field.value = '\n'.join(
+                self._mutate_reply(channel_id, line)
+                for line in field.value.split('\n')
+            )
+
     async def message(self, target: Union[str, "discord.TextChannel"], message: Union[str, "discord.Embed"], embed: bool = False):
         """Sends a message to a Discord target (nickname or discord.py channel object).
 
@@ -302,6 +323,7 @@ class DiscordClient(DuplexBackend):
             return False
 
         if embed:
+            self._mutate_embed(target, message)
             await self.send(self._message_embed_callback(target, message))
 
         else:
@@ -316,7 +338,7 @@ class DiscordClient(DuplexBackend):
             return False
 
         if embed:
-            # WIP: mutate embeds as well
+            self._mutate_embed(target, message)
             self._out_queue.put(self._message_embed_callback(target, message))
 
         else:
