@@ -19,7 +19,7 @@ from triarc.bot import Message
 
 class DiscordMessage(Message):
     def __init__(self, backend, line, author, channel, discord_message):
-        super().__init__(backend, line, author.name, author.id, '#' + channel.name, channel.id)
+        super().__init__(backend, line, author.name, author.id, '#' + getattr(channel, 'recipient', channel).name, channel.id)
 
         self.discord_author  = author
         self.discord_channel = channel
