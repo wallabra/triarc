@@ -327,7 +327,7 @@ class DiscordClient(DuplexBackend):
             await self.send(self._message_embed_callback(target, message))
 
         else:
-            await self.send(self._message_callback(target, self._mutate_reply(target, message)))
+            await self.send(self._message_callback(target, self._mutate_reply(str(target.id), message)))
 
         return True
 
@@ -342,7 +342,7 @@ class DiscordClient(DuplexBackend):
             self._out_queue.put(self._message_embed_callback(target, message))
 
         else:
-            self._out_queue.put(self._message_callback(target, self._mutate_reply(target, message)))
+            self._out_queue.put(self._message_callback(target, self._mutate_reply(str(target.id), message)))
 
         return True
 
