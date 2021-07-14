@@ -25,6 +25,7 @@ class Message:
         author_addr: str,
         channel: Any,
         channel_addr: str,
+        when: Optional[datetime.datetime] = None
     ):
         self.backend = backend
         self.line = line
@@ -32,7 +33,7 @@ class Message:
         self.author_addr = author_addr
         self.channel = channel
         self.channel_addr = channel_addr
-        self.when = datetime.datetime.now()
+        self.when = when or datetime.datetime.now()
 
     async def reply(self, reply_line: str, reply_reference: bool) -> bool:
         """Replies back at the message anyhow."""

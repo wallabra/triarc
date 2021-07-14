@@ -34,6 +34,7 @@ class DiscordMessage(Message):
             author.id,
             "#" + getattr(channel, "recipient", channel).name,
             str(channel.id),
+            when=discord_message.created_at
         )
 
         self.discord_author = author
