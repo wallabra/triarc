@@ -6,52 +6,19 @@ The base class of all Triarc backends is here defined.
 
 import logging
 import queue
-from typing import Set
+import typing
+from collections.abc import Iterable
 
 import trio
 
 from triarc.mutator import Mutator
 
+if typing.TYPE_CHECKING:
+    from .comm.base import MessageToSend
+    from .comm.impl import CompositeContentType
+    from .comms._impl import MessageProxy
 
-class ChannelProxy(Protocol):
-    """
-    A high-level Channel implementation protocol.
-
-    Backends emit _JOIN and _PART events, which are
-    picked up on by the base Backend class. Joined
-    channels are indexed by the Bot class. A _JOIN
-    and _PART event, respectively, *must* pass a
-    ChannelProxy object, for which a Channel wrapper
-    is created.
-    """
-
-    def get_id(self) -> str:
-        """
-        Return an unique string identifier, determined by the
-        backend implementation.
-
-        Returns:
-            str -- The unique identifier of this channel.
-        """
-        ...
-
-    def list_users(self) -> typing.Optional[typing.Generator[str, None, None]]:
-        """
-        Generates a list of users in this channel, by backend-specific user ID.
-
-        """
-
-    def post_message(self, message: str) -> bool:
-        """
-        Sends a message to this channel.
-
-        Arguments:
-            message {str} -- The message to be posted.
-
-        Returns:
-            bool -- Whether the message was sent successfully.
-        """
-        ...
+BackendType = typing.TypeVar("BackendType", "Backend")
 
 
 class Backend:
@@ -64,13 +31,17 @@ class Backend:
     """
 
     def __init__(self):
-        self.mutators = set()  # type: Set[Mutator]
+        self.mutators: set[Mutator] = set()
 
         self._listeners = {}
         self._global_listeners = set()
 
         self.stop_scopes = set()
         self.stop_scope_watcher = None  # type: trio.NurseryManager
+
+    def get_composite_types(self) -> Iterable[CompositeContentType]:
+        """Get a list of all CompositeContent implementation types supported."""
+        return []
 
     def _register_mutator(self, mutator: Mutator):
         self.mutators.add(mutator)
@@ -225,8 +196,18 @@ class Backend:
             nursery.start_soon(_run_until_stopped)
             nursery.start_soon(on_loaded)
 
+    def construct_message_lines(self, *lines: Iterable[str]) -> "MessageToSend":
+        """
+        Constructs a new MessageToSend object from one or more
+        lines of plaintext.
+        """
+        raise NotImplementedError("This method is implemented in subclasses!")
+
+    # WIP: include method for construction of 'complex content' msgs
+
     def new_stop_scope(self):
-        """Makes a new Trio cancel scope, which is automatically
+        """
+        Makes a new Trio cancel scope, which is automatically
         cancelled when the backend is stopped. The backend must
         be running.
 

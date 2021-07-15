@@ -9,71 +9,23 @@ Other generic chat-related classes, like Message, may
 also be found here.
 """
 
-import datetime
 import functools
 import traceback
-import typing_extensions as typext
-from typing import Any, Optional, Set, Protocol
+import typing
+import uuid
+from typing import Optional, Set, Union
 
 import trio
-import uuid
-import attrs
 
 import triarc
-from triarc.backend import Backend
 from triarc.errors import TriarcBotBackendRefusedError
 from triarc.mutator import Mutator
 
+from .comms.wrapper import Channel, Message, MessageLegacyProxy, User
 
-class Channel:
-    """A high-level wrapper class for backends' ChannelProxy objects."""
-
-    backend: str
-    identifier: str
-    unique: uuid.UUID = attrs.Factory(uuid.uuid4)
-
-
-class Message:
-    """
-    A high-level Message base class.
-
-    This shall be implemented by backends.
-    """
-
-    def __init__(
-        self,
-        backend: Backend,
-        line: str,
-        author_name: str,
-        author_addr: str,
-        channel: Any,
-        channel_addr: str,
-        when: Optional[datetime.datetime] = None,
-    ):
-        self.backend = backend
-        self.line = line
-        self.author_name = author_name
-        self.author_addr = author_addr
-        self.channel = channel
-        self.channel_addr = channel_addr
-        self.when = when or datetime.datetime.utcnow()
-
-    async def reply(self, reply_line: str, reply_reference: bool) -> bool:
-        """Replies back at the message anyhow."""
-        pass
-
-    async def reply_channel(self, reply_line: str, reply_reference: bool) -> bool:
-        """Replies back directly to the channel, if said distinction is applicable."""
-        pass
-
-    async def reply_privately(self, reply_line: str, reply_reference: bool) -> bool:
-        """Replies back directly to the author."""
-        pass
-
-    def __repr__(self) -> str:
-        return "{}({} in {}: {})".format(
-            type(self).__name__, self.author_name, self.channel, repr(self.line)
-        )
+if typing.TYPE_CHECKING:
+    from .comms.impl import Backend, ChannelProxy, MessageProxy, UserProxy
+    from .comms.wrapper import MessageLegacy
 
 
 class Bot:
@@ -94,12 +46,42 @@ class Bot:
         self.backends: set[Backend] = set()
         self.mutators: set[Mutator] = set()
 
-        self.channels: set[Channel] = set()
+        self.channels: dict[tuple[Backend, str], Channel] = {}
+        self.users: dict[tuple[Backend, str], User] = {}
 
         backends = set(backends)
 
         for backend in backends:
             self.register_backend(backend)
+
+    def wrap_message(
+        self, proxy: MessageProxy, unique: Optional[uuid.UUID] = None
+    ) -> "Message":
+        """
+        Wraps a MessageProxy with a new Message object.
+        """
+        return Message.create(self, proxy, unique=unique)
+
+    def wrap_channel(self, proxy: ChannelProxy) -> "Channel":
+        """
+        Wraps a ChannelProxy with a Channel object.
+
+        If this Channel did not exist before, it will default to its
+        active property being False, as this would indicate either that
+        a join event for it was never received, or that a part event
+        was received after the last join, and that thus this bot is not
+        in said channel.
+        """
+        ident = (proxy.backend, proxy.get_id())
+
+        if ident in self.channels:
+            return self.channels[ident]
+
+        else:
+            channel = Channel.create(self, proxy, active=False)
+            self.channels[ident] = channel
+
+            return channel
 
     def register_mutator(self, mutator: Mutator):
         """
@@ -267,9 +249,46 @@ class CommandBot(Bot):
         self.commands = {}
         self.help = {}
 
-    async def on_message(self, which: Backend, message: Message):
+    async def on_hi(self, which: Backend, proxy: UserProxy):
+        ident = (proxy.backend, proxy.get_id())
+
+        if ident in self.users:
+            user = self.users[ident]
+            user.active = True
+
+        else:
+            user = User.create(self, proxy, active=True)
+            self.users[ident] = user
+
+    async def on_join(self, which: Backend, proxy: ChannelProxy):
+        ident = proxy.get_id()
+
+        if ident in self.channels:
+            channel = self.channels[ident]
+            channel.active = True
+
+        else:
+            channel = Channel.create(self, proxy, active=True)
+            self.channels[ident] = channel
+
+    async def on_bye(self, which: Backend, user_id: str):
+        if user_id in self.users:
+            self.users[user_id].active = False
+
+    async def on_part(self, which: Backend, channel_id: str):
+        if channel_id in self.channels:
+            self.channels[channel_id].active = False
+
+    async def on_message(
+        self, which: Backend, message_p: Union[MessageProxy, MessageLegacy]
+    ):
+        if isinstance(message_p, MessageLegacy):
+            message_p = MessageLegacyProxy.create(self, message_p)
+
+        message = Message.create(self, message_p)
+
         try:
-            line = message.line
+            line = message.get_main_line()
             line = line.rstrip()
 
             if line.startswith(self.prefix):
@@ -284,11 +303,13 @@ class CommandBot(Bot):
                         await self.commands[cmd](which, message, *args)
 
                     # (We are meant to catch exceptions broadly, in order to
-                    # report them to bot authors.)
+                    # be able to report them to bot authors.)
                     # pylint: disable=broad-except
                     except Exception as err:
                         traceback.print_exc()
-                        await message.reply(
+
+                        # Do not clutter channels.
+                        await message.reply_privately(
                             "{}: {}".format(type(err).__name__, str(err))
                         )
 

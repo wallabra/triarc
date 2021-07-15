@@ -6,16 +6,218 @@ rather rigid with client behavior, which includes throttling
 (and is why throttling is by default enabled).
 """
 
+import enum
 import ssl
-from typing import Iterable, List, Optional, Set
+import typing
+from typing import Iterable, List, Optional, Set, Literal
 
+import attr
 import trio
 
 from triarc.backend import DuplexBackend
-from triarc.bot import Message
+from triarc.bot import MessageLegacy
+
+if typing.TYPE_CHECKING:
+    from triarc.backend import Backend
+
+    from ..comms.base import CompositeContentInstance
+    from ..comms.impl import (
+        Messageable,
+        UserProxy,
+        ChannelProxy,
+        MessageProxy,
+        datetime,
+    )
 
 
-class IRCMessage(Message):
+@attr.s(autoattrib=True)
+class IRCTarget:
+    """The IRC backend's universal Messageable implementation."""
+
+    backend: "IRCConnection"
+    target: str
+
+    async def message_line(self, line: str) -> bool:
+        """Send a single line of plaintext."""
+        return await self.backend.message(self.target, line)
+
+    async def message_lines(self, *lines: Iterable[str]) -> bool:
+        """Send many lines of plaintext."""
+        return all([await self.backend.message(self.target, line) for line in lines])
+
+    async def message_composite(self, composite: "CompositeContentInstance") -> bool:
+        return all(
+            [
+                await self.backend.message(self.target, line)
+                for line in composite.get_lines()
+            ]
+        )
+
+
+@attr.s(autoattrib=True)
+class IRCOrigin:
+    full: str
+    type: Literal["user" | "server"]
+
+    # Users
+    nick: str
+    ident: str
+    hostname: str
+
+    @classmethod
+    def create(cls: typing.Type["IRCOrigin"], origin: str) -> "IRCOrigin":
+        if "!" in origin:
+            nick = origin.split("!")[0]
+            ident = "!".join(origin.split("@")[0].split("!")[1:])
+            hostname = "@".join(origin.split("@")[1:])
+            type = "user"
+
+        else:
+            type = "server"
+            nick = None
+            ident = None
+            hostname = None
+
+        return cls(origin, type, nick, ident, hostname)
+
+    def is_user(self) -> bool:
+        """Whether this IRCOrigin was another client."""
+        return self.type == "user"
+
+    def is_server(self) -> bool:
+        """Whether this IRCOrigin was a server."""
+        return self.type == "server"
+
+
+class IRCError(BaseException):
+    """Base class for IRC errors."""
+
+    pass
+
+
+class IRCMessageError(IRCError):
+    """Error related to the handling of IRC messages."""
+
+    pass
+
+
+@attr.s(autoattrib=True)
+class IRCMessage:
+    """New IRCMessage, implements MessageProxy."""
+
+    backend: "IRCConnection"
+    irc_origin: IRCOrigin
+    target: str
+    line: str
+    when: datetime.datetime
+
+    @classmethod
+    def create(
+        cls: typing.Typé["IRCMessage"],
+        backend: "IRCConnection",
+        origin: str,
+        line: str,
+        target: str,
+    ) -> "IRCMessage":
+        """Creates an IRCMessage object for a received message."""
+        return cls(
+            backend, IRCOrigin.parse(origin), target, line, datetime.datetime.utcnow()
+        )
+
+    @classmethod
+    def from_response(
+        cls: typing.Typé["IRCMessage"],
+        backend: "IRCConnection",
+        response: "IRCResponse",
+    ) -> "IRCMessage":
+        """Creates an IRCMessage object from an IRCResponse."""
+
+        if __debug__ and response.kind.upper() != "PRIVMSG":
+            raise IRCMessageError(
+                "Tried to create an IRCMessage from an IRCResponse "
+                "that is not a PRIVMSG!"
+            )
+
+        return cls(
+            backend,
+            response.author,
+            response.args[0],
+            response.data,
+            datetime.datetime.utcnow(),
+        )
+
+    def origin_is_channel(self) -> bool:
+        """
+        Returns whether the origin of this message is a Channel.
+        """
+        return self.target != self.backend.selfuser.user
+
+    def get_channel(self) -> Optional["ChannelProxy"]:
+        """
+        Returns the origin channel of this message, if applicable.
+        """
+        if self.target == self.backend.selfuser.user:
+            return None  # not in channel
+
+        return self.backend.records.channels[self.target]
+
+    def get_author(self) -> UserProxy:
+        """
+        Returns the author of this message.
+        """
+        if self.irc_origin.nick is None:
+            raise IRCMessageError("Cannot handle PRIVMSGs sent from servers!")
+
+        return self.backend.records.add_user(self.irc_origin.nick)
+
+    def quote_line(self) -> str:
+        """
+        Returns the 'quote line' of this message, in a single line of plaintext.
+
+        The result should look something like, for instance, this:
+
+            <AntonTheIRCGuy> I said some stuff! Hooray me!
+        """
+        if self.origin.is_server():
+            raise IRCMessageError("Cannot handle PRIVMSGs sent from servers!")
+
+        return "<{}> {}".format(self.origin.nick, self.line)
+
+    def get_main_line(self) -> str:
+        """
+        Returns the main contents of this message in a single line.
+        """
+        return self.line
+
+    def get_all_lines(self) -> Iterable[str]:
+        """
+        If the underlying Backend supports multi-line messages, returns
+        several lines of text, one string per line.
+        """
+        return [self.line]
+
+    def get_composiste(self) -> Optional[CompositeContentInstance]:
+        """
+        If applicable, returns the composite content instance of this message.
+        """
+        return None
+
+    def get_date(self) -> datetime.datetime:
+        """
+        Returns the date this message was sent at.
+        """
+        return self.when
+
+    def is_composite(self) -> bool:
+        """
+        Returns whether the message is of a composite content kind.
+        """
+        return False
+
+
+class IRCMessageLegacy(MessageLegacy):
+    """Legacy implementation of IRCMessage. Kept mostly for historical reference."""
+
     def __init__(self, backend: "IRCConnection", line: str, origin: str, channel: str):
         super().__init__(
             backend,
@@ -104,27 +306,145 @@ def irc_lex_response(resp: str) -> (str, str, str, bool, List[str], Optional[str
     return (resp, origin, kind, is_numeric, tuple(args), dataline)
 
 
+@attr.s(autoattrib=True)
 class IRCParams:
-    def __init__(self, args: Iterable[str], data: Optional[str] = None):
-        self.args = tuple(args)
-        self.data = data and str(data) or ""
+    args: list[str] = attr.Factory(list)
+    data: Optional[str] = attr.Factory(
+        lambda data: str(data) if data is not None else None
+    )
 
 
+@attr.s(autoattrib=True)
+class UserRecord:
+    """An IRC user record. Also a UserProxy implementation."""
+
+    backend: "IRCConnection"
+    user: str
+    orig_name: str
+    online: bool = True
+    is_self: bool = False
+    shared_channels: set[str] = attr.Factory(set)
+
+    @classmethod
+    def create(
+        cls: "UserRecord",
+        backend: "IRCConnection",
+        username: str,
+        is_self: bool = False,
+    ) -> "UserRecord":
+        """Creates a new UserRecord."""
+        return cls(backend, username, username, is_self=is_self)
+
+    def get_backend(self) -> "Backend":
+        """Gets the Backend that implements this object."""
+        return self.backend
+
+    def get_id(self) -> str:
+        """
+        Return an unique string identifier, determined by the
+        backend implementation.
+
+        Returns:
+            str -- The unique identifier of this object.
+        """
+        return self.orig_name
+
+    def get_name(self) -> typing.Optional[str]:
+        """
+        May return a human-friendly name that describes this object.
+        """
+        return self.user
+
+    def as_messageable(self) -> Messageable:
+        """
+        Creates a target object from this user, as a Messageable-compliant
+        object.
+        """
+        return IRCTarget(self.backend, self.user)
+
+    def is_self(self) -> bool:
+        """
+        Whether this user represents the Triarc bot itself in the backend
+        platform.
+        """
+        return self.is_self
+
+    def is_online(self) -> bool:
+        """
+        Whether this user is online.
+
+        The result is always boiled down to being a 'yes' only if
+        this user can be messaged in a way that the client at
+        the other end of the wire will immediately receive it,
+        possibly including the ability to react immediately.
+
+        The reason this exists in spite of User.active is that it may
+        be separate from how active backend objects are tracked by Bot.
+
+        In IRC, there is no need for such distinction, however, some other
+        platforms may not broadcast whenever a client becomes offline,
+        requiring active polling, and thus in the meanwhile remaining 'active'
+        (relevant) in the eyes of the Triarc bot as far as itself is concerned.
+
+        TL;DR users are considered around till proven gone.
+        """
+        return self.online
+
+
+@attr.s(autoattrib=True)
+class ChannelRecord:
+    """
+    A known IRC channel. Also a ChannelProxy implementation.
+    """
+
+    backend: "IRCConnection"
+    channel: str
+    joined: bool = True
+    users: set[str] = attr.Factory(set)
+
+    def get_backend(self) -> "Backend":
+        """Gets the Backend that implements this object."""
+        return self.backend
+
+    def get_id(self) -> str:
+        """
+        Return an unique string identifier, determined by the
+        backend implementation.
+
+        Returns:
+            str -- The unique identifier of this object.
+        """
+        return self.channel
+
+    def get_name(self) -> typing.Optional[str]:
+        """
+        May return a human-friendly name that describes this object.
+        """
+        return self.channel
+
+    def as_messageble(self) -> Messageable:
+        """
+        Creates a target object from this channel, as a Messageable-compliant
+        object.
+        """
+        return IRCTarget(self.backend, self.channel)
+
+    def list_users(self) -> typing.Optional[typing.Generator[str, None, None]]:
+        """
+        Generates a list of users in this channel, by backend-specific user ID.
+        """
+        return self.backend.list_users_at(self.channel)
+
+
+@attr.s(autoattrib=True)
 class IRCResponse:
-    def __init__(
-        self,
-        line: str,
-        origin: str,
-        is_numeric: int,
-        kind: str,
-        args: List[str],
-        data: Optional[str] = None,
-    ):
-        self.line = line
-        self.origin = origin
-        self.is_numeric = is_numeric
-        self.kind = kind
-        self.params = IRCParams(args, data)
+    line: str
+    origin: str
+    author: IRCOrigin
+    is_numeric: int
+    kind: str
+    args: list[str] = attr.Factory(list)
+    data: Optional[str]
 
     def __repr__(self):
         return "IRCResponse({})".format(repr(self.line))
@@ -141,25 +461,146 @@ class IRCResponse:
     def data(self, value):
         self.params.data = value
 
+    @classmethod
+    def parse(cls: typing.Type["IRCResponse"], resp: str) -> "IRCResponse":
+        """Parses an IRC server response, according to RFC 1459.
 
-def irc_parse_response(resp: str) -> IRCResponse:
-    """Parses an IRC server response, according to RFC 1459.
+            >>> IRCResponse.parse(':zirconium.libera.chat 404 :Not Found').kind
+            404
 
-        >>> irc_parse_response(':zirconium.libera.chat 404 :Not Found').kind
-        404
+            >>> print(IRCResponse.parse(':zirconium.libera.chat IS okay :a Good Word').args[0])
+            okay
 
-        >>> print(irc_parse_response(':zirconium.libera.chat IS okay :a Good Word').args[0])
-        okay
+        Arguments:
+            resp {str} -- The IRC response to parse.
 
-    Arguments:
-        resp {str} -- The IRC response to parse.
+        Returns:
+            IRCResponse -- The parsed representation.
+        """
 
-    Returns:
-        IRCResponse -- The parsed representation.
+        resp, origin, kind, is_numeric, args, data = irc_lex_response(resp)
+        return cls(resp, origin, IRCOrigin.create(origin), is_numeric, kind, args, data)
+
+
+@attr.s
+class IRCRecordStorage:
+    """
+    IRC state tracking.
+
+    IRC is a stateless protocol; keeping the state
+    is a client software responsibility.
+
+    This is done in memory; future versions may include
+    abstraction, and then storage backends like SQLite.
     """
 
-    resp, origin, kind, is_numeric, args, data = irc_lex_response(resp)
-    return IRCResponse(resp, origin, is_numeric, kind, args, data)
+    backend: "IRCConnection"
+    selfuser: str
+
+    users: dict[str, UserRecord] = attr.Factory(dict)
+    channels: dict[str, ChannelRecord] = attr.Factory(dict)
+
+    @classmethod
+    def init(
+        cls: typing.Type["IRCRecordStorage"], backend: "IRCConnection", selfuser: str
+    ) -> tuple["IRCRecordStorage", "UserRecord"]:
+        """Creates a new IRCRecordStorage."""
+        self = cls(backend, selfuser)
+        user = self.add_user(selfuser, True)
+
+        return self, user
+
+    def handle_join(self, channel: str, username: str) -> ChannelRecord:
+        """Handles an IRC JOIN event."""
+        user = self.add_user(username)
+        chan = self.add_channel(channel)
+
+        user.shared_channels.add(channel)
+        chan.users.add(username)
+
+        user.online = True
+
+        if username == self.selfuser:
+            chan.joined = True
+
+        return
+
+    def handle_nick(self, prevname: str, newname: str) -> ():
+        """Handles an IRC NICK event."""
+        if prevname == self.selfuser:
+            self.selfuser = newname
+
+        user = self.ddd_user(prevname)
+        user.user = newname
+
+    def handle_who(
+        self, channel: str, *users: Iterable[str], on_join=True
+    ) -> typing.Generator[UserRecord, None, None]:
+        """Handles the user list received when a channel is joined or WHO'd."""
+        chan = self.add_channel(channel)
+
+        if on_join:
+            chan.joined = True
+
+        for username in users:
+            user = self.add_user(username)
+
+            user.channels.add(channel)
+            chan.users.add(username)
+
+            yield user
+
+    def handle_part(self, channel: str, username: str):
+        """Handles an IRC PART event."""
+        user = self.add_user(username)
+        chan = self.add_channel(channel)
+
+        chan.users.remove(username)
+        user.shared_channels.remove(channel)
+
+        if username == self.selfuser:
+            self.channels[channel].joined = False
+            self.backend.receive_message("PART", channel)
+
+        if not user.shared_channels:
+            # assume user is already offline
+            user.online = False
+            self.backend.receive_message("BYE", username)
+
+    def handle_quit(self, username: str):
+        """Handles an IRC QUIT event."""
+        user = self.add_user(username)
+
+        for channel in user.channels:
+            chan = self.add_channel(channel)
+            chan.users.remove(username)
+
+        self.users[user].online = False
+        self.backend.receive_message("BYE", username)
+
+    def add_user(self, username: str, is_self: bool = False) -> UserRecord:
+        """Adds a new user record."""
+        if username in self.users:
+            return self.users[username]
+
+        user = self.users.setdefault(
+            username, UserRecord.create(self.backend, username, is_self=is_self)
+        )
+
+        self.backend.receive_message("HI", user)
+
+        return user
+
+    def add_channel(self, channel: str) -> ChannelRecord:
+        """Adds a new channel record."""
+        if channel in self.channels:
+            return self.channels[channel]
+
+        chan = self.channels.setdefault(channel, ChannelRecord(self.backend, channel))
+
+        self.backend.receive_message("JOIN", chan)
+
+        return chan
 
 
 class IRCConnection(DuplexBackend):
@@ -243,6 +684,10 @@ class IRCConnection(DuplexBackend):
         self.port = port
         self.ssl_context = ssl_ctx  # type: Optional[ssl.SSLContext]
         self.connection = None  # type: trio.SocketStream | trio.SSLStream
+
+        self.records, self.selfuser = IRCRecordStorage.init(self, nickname)
+
+        self.receive_message("HI", self.selfuser)
 
         self.nickname = nickname
         self.realname = realname
@@ -383,7 +828,7 @@ class IRCConnection(DuplexBackend):
 
             return True
 
-        response = irc_parse_response(line)
+        response = IRCResponse.parse(line)
 
         if not response:
             return False
@@ -396,12 +841,44 @@ class IRCConnection(DuplexBackend):
 
         await self.receive_message("IRC_" + received_kind, response)
 
-        if not response.is_numeric and response.kind.upper() == "PRIVMSG":
-            await self.receive_message(
-                "MESSAGE",
-                IRCMessage(
-                    self, response.params.data, response.origin, response.params.args[0]
-                ),
+        if not response.is_numeric:
+            if response.kind.upper() == "PRIVMSG":
+                # WIP: upgrade to using an actual MessageProxy implementation
+                await self.receive_message(
+                    "MESSAGE",
+                    IRCMessageLegacy(
+                        self,
+                        response.params.data,
+                        response.origin,
+                        response.params.args[0],
+                    ),
+                )
+
+            elif "!" in response.origin:
+                # is user
+                nick = response.origin.split("!")[0]
+
+                if response.kind.upper() == "JOIN":
+                    self.records.handle_join(response.args[0], nick)
+
+                elif response.kind.upper() == "PART":
+                    self.records.handle_part(response.args[0], nick)
+
+                elif response.kind.upper() == "QUIT":
+                    self.records.handle_quit(nick)
+
+                elif response.kind.upper() == "NICK":
+                    self.records.handle_nick(nick, response.args[0])
+
+        elif response.numeric == 353:
+            # RPL_NAMREPLY
+            self.records.handle_who(
+                response.args[0],
+                [
+                    (uname[1:] if uname[0] in "@%+" else uname)
+                    for uname in response.data.split(" ")
+                ],
+                on_join=False,
             )
 
         if received_kind.upper() == "PING":
