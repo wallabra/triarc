@@ -9,7 +9,7 @@ rather rigid with client behavior, which includes throttling
 import enum
 import ssl
 import typing
-from typing import Iterable, List, Optional, Set, Literal
+from typing import Iterable, List, Literal, Optional, Set
 
 import attr
 import trio
@@ -22,10 +22,10 @@ if typing.TYPE_CHECKING:
 
     from ..comms.base import CompositeContentInstance
     from ..comms.impl import (
-        Messageable,
-        UserProxy,
         ChannelProxy,
+        Messageable,
         MessageProxy,
+        UserProxy,
         datetime,
     )
 
