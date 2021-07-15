@@ -14,18 +14,21 @@ class Mutator:
     extensions.
     """
 
-    async def on_any(self, backend: "triarc.backend.Backend", kind: str, data: any):
+    async def on_any(
+        self, backend: "triarc.backend.Backend", kind: str, data: any
+    ) -> ():
         """
         This method is called by the Bot whenever any backend
         event is emitted.
 
         Arguments:
-            backend {triarc.backend.Backend} -- The backend that caused this event.
+            backend {triarc.backend.Backend} -- The backend that caused
+                                                this event.
 
             kind {str} -- The kind of backend event.
             data {any} -- The data of this backend event.
         """
-        pass
+        ...
 
     def modify_message(
         self, backend: "triarc.backend.Backend", target: any, message: str
@@ -35,7 +38,8 @@ class Mutator:
         Returns the modified version of this message.
 
         Arguments:
-            backend {triarc.backend.Backend} -- The backend whose outgoing message to be modified.
+            backend {triarc.backend.Backend} -- The backend whose outgoing
+                                                message to be modified.
 
             target {any} -- The target. This is actually any object that can be
                             accepted in backend.message, so always use repr()!

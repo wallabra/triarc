@@ -1,3 +1,8 @@
+"""
+A module with generic Triarc errors.
+"""
+
+
 class TriarcError(Exception):
     """
     A common superclass for all

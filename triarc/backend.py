@@ -1,5 +1,7 @@
-"""The Backend class. The base class of all Triarc backends is
-here defined.
+"""
+The Backend class.
+
+The base class of all Triarc backends is here defined.
 """
 
 import logging
@@ -12,9 +14,13 @@ from triarc.mutator import Mutator
 
 
 class Backend:
-    """Dummy backend superclass. Actual Triarc backends are supposed to subclass
-    the Backend class, which provides several utilities, including those which are
-    expected (and thus required) by the Triarc bot that will eventually use it."""
+    """
+    Dummy backend superclass.
+
+    Actual Triarc backends are supposed to subclass the Backend class, which
+    nonetheless provides several utilities, including those which are expected
+    (and thus required) by the Triarc bot that will eventually use it.
+    """
 
     def __init__(self):
         self.mutators = set()  # type: Set[Mutator]
@@ -116,12 +122,12 @@ class Backend:
     async def start(self):
         """Starts the backend."""
 
-        raise NotImplementedError("Please subclass backend and implement start!")
+        raise NotImplementedError("Please subclass and implement!")
 
     async def stop(self):
         """Stops the backend."""
 
-        raise NotImplementedError("Please subclass backend and implement stop!")
+        raise NotImplementedError("Please subclass and implement!")
 
     async def message(self, target: str, message: str):
         """Standard backend method, which must be implemented by
@@ -184,7 +190,7 @@ class Backend:
         be running.
 
         Raises:
-            RuntimeError: Tried to make a stop scope while the backend isn't running.
+            RuntimeError: Tried to make a stop scope whilst not running.
 
         Returns:
             trio.CancelScope -- The stop scope.

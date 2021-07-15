@@ -1,13 +1,21 @@
 """
 The Discord backend.
+
+Uses the high-level discord.py library for actually
+communicating to Discord, unlike the IRC backend, which
+is an IRC client in and of itself.
+
+Also requires trio_asyncio, since Triarc uses trio (as
+hinted in the name!), whereas discord.py uses asyncio,
+requiring bridging in order to maintain proper, seamless
+asynchronous functionality.
 """
 
 import logging
-import queue
 import time
 import traceback
 import warnings
-from typing import Callable, Union, Optional
+from typing import Callable, Optional, Union
 
 import discord
 import trio
@@ -34,7 +42,7 @@ class DiscordMessage(Message):
             author.id,
             "#" + getattr(channel, "recipient", channel).name,
             str(channel.id),
-            when=discord_message.created_at
+            when=discord_message.created_at,
         )
 
         self.discord_author = author

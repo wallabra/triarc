@@ -1,14 +1,12 @@
 """
-The IRC backend. Use with great care, as IRC networks can be
+The IRC backend.
+
+Use with great care, as IRC networks can be
 rather rigid with client behavior, which includes throttling
 (and is why throttling is by default enabled).
 """
 
-import itertools as itt
-import logging
-import queue
 import ssl
-from collections import deque, namedtuple
 from typing import Iterable, List, Optional, Set
 
 import trio

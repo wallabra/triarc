@@ -1,6 +1,12 @@
-"""Bots are the central concept of Triarc: entities that
-manage high-level responses, while leaving low-level handling
-details to the backend(s).
+"""
+The Triarc Bot class and other related definitions.
+
+Bots are the central concept of Triarc: entities that
+manage communications at a high-level, while leaving
+low-level handling details to the backend(s).
+
+Other generic chat-related classes, like Message, may
+also be found here.
 """
 
 import datetime
@@ -25,7 +31,7 @@ class Message:
         author_addr: str,
         channel: Any,
         channel_addr: str,
-        when: Optional[datetime.datetime] = None
+        when: Optional[datetime.datetime] = None,
     ):
         self.backend = backend
         self.line = line
