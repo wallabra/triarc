@@ -12,9 +12,12 @@ also be found here.
 import datetime
 import functools
 import traceback
-from typing import Any, Optional, Set
+import typing_extensions as typext
+from typing import Any, Optional, Set, Protocol
 
 import trio
+import uuid
+import attrs
 
 import triarc
 from triarc.backend import Backend
@@ -22,7 +25,21 @@ from triarc.errors import TriarcBotBackendRefusedError
 from triarc.mutator import Mutator
 
 
+class Channel:
+    """A high-level wrapper class for backends' ChannelProxy objects."""
+
+    backend: str
+    identifier: str
+    unique: uuid.UUID = attrs.Factory(uuid.uuid4)
+
+
 class Message:
+    """
+    A high-level Message base class.
+
+    This shall be implemented by backends.
+    """
+
     def __init__(
         self,
         backend: Backend,
@@ -74,8 +91,10 @@ class Bot:
         """
 
         self.name = name
-        self.mutators = set()  # type: Set[Mutator]
-        self.backends = set()  # type: Set[Backend]
+        self.backends: set[Backend] = set()
+        self.mutators: set[Mutator] = set()
+
+        self.channels: set[Channel] = set()
 
         backends = set(backends)
 

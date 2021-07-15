@@ -13,9 +13,50 @@ import trio
 from triarc.mutator import Mutator
 
 
+class ChannelProxy(Protocol):
+    """
+    A high-level Channel implementation protocol.
+
+    Backends emit _JOIN and _PART events, which are
+    picked up on by the base Backend class. Joined
+    channels are indexed by the Bot class. A _JOIN
+    and _PART event, respectively, *must* pass a
+    ChannelProxy object, for which a Channel wrapper
+    is created.
+    """
+
+    def get_id(self) -> str:
+        """
+        Return an unique string identifier, determined by the
+        backend implementation.
+
+        Returns:
+            str -- The unique identifier of this channel.
+        """
+        ...
+
+    def list_users(self) -> typing.Optional[typing.Generator[str, None, None]]:
+        """
+        Generates a list of users in this channel, by backend-specific user ID.
+
+        """
+
+    def post_message(self, message: str) -> bool:
+        """
+        Sends a message to this channel.
+
+        Arguments:
+            message {str} -- The message to be posted.
+
+        Returns:
+            bool -- Whether the message was sent successfully.
+        """
+        ...
+
+
 class Backend:
     """
-    Dummy backend superclass.
+    Dummy backend implementation superclass.
 
     Actual Triarc backends are supposed to subclass the Backend class, which
     nonetheless provides several utilities, including those which are expected
