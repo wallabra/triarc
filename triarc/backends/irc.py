@@ -6,7 +6,6 @@ rather rigid with client behavior, which includes throttling
 (and is why throttling is by default enabled).
 """
 
-import enum
 import ssl
 import typing
 from typing import Iterable, List, Literal, Optional, Set
@@ -24,7 +23,6 @@ if typing.TYPE_CHECKING:
     from ..comms.impl import (
         ChannelProxy,
         Messageable,
-        MessageProxy,
         UserProxy,
         datetime,
     )
