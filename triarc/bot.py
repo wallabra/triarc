@@ -317,25 +317,6 @@ class CommandBot(Bot):
             traceback.print_exc()
             raise
 
-    async def read(
-        self, which: Backend, target: any, message: str, data: "triarc.irc.IRCResponse"
-    ):
-        """
-        Deprecated method. Do not use.
-
-        Arguments:
-            target {any} -- Any object the backend treats as a target.
-
-            message {str} -- The line to read.
-
-        Keyword Arguments:
-            data {IRCResponse} --   An IRC response object.
-        """
-
-        await self.on_message(
-            which, Message(which, message, data.origin, data.origin, target)
-        )
-
     def add_command(self, name: str, help_string: Optional[str] = None):
         """Adds a commannd to this bot, by supplying a 'define' function and an asynchronous
         reply method. Use a closure (decorated with the 'define' argument) to actually define
