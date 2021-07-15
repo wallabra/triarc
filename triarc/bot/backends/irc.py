@@ -20,12 +20,7 @@ if typing.TYPE_CHECKING:
     from triarc.backend import Backend
 
     from ..comms.base import CompositeContentInstance
-    from ..comms.impl import (
-        ChannelProxy,
-        Messageable,
-        UserProxy,
-        datetime,
-    )
+    from ..comms.impl import ChannelProxy, Messageable, UserProxy, datetime
 
 
 @attr.s(autoattrib=True)
@@ -841,15 +836,8 @@ class IRCConnection(DuplexBackend):
 
         if not response.is_numeric:
             if response.kind.upper() == "PRIVMSG":
-                # WIP: upgrade to using an actual MessageProxy implementation
                 await self.receive_message(
-                    "MESSAGE",
-                    IRCMessageLegacy(
-                        self,
-                        response.params.data,
-                        response.origin,
-                        response.params.args[0],
-                    ),
+                    "MESSAGE", IRCMessage.from_response(self, response)
                 )
 
             elif "!" in response.origin:

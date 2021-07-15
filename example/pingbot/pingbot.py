@@ -4,10 +4,10 @@ Runs a very simple IRC bot that responds to the command ping.
 
 import trio_asyncio
 
-from triarc.backend import Backend
-from triarc.backends.discord import DiscordClient
-from triarc.backends.irc import IRCConnection, IRCResponse
-from triarc.bot import Bot, Message
+from triarc.bot.backend import Backend
+from triarc.bot.backends.discord import DiscordClient
+from triarc.bot.backends.irc import IRCConnection
+from triarc.bot.bot import Bot, Message
 
 
 class MySimpleBot(Bot):

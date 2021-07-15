@@ -203,8 +203,6 @@ class Backend:
         """
         raise NotImplementedError("This method is implemented in subclasses!")
 
-    # WIP: include method for construction of 'complex content' msgs
-
     def new_stop_scope(self):
         """
         Makes a new Trio cancel scope, which is automatically
