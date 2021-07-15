@@ -11,6 +11,8 @@ requiring bridging in order to maintain proper, seamless
 asynchronous functionality.
 """
 
+# WIP: implement proxy objects; comply to triarc rewrite
+
 import logging
 import time
 import traceback
