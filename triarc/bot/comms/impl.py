@@ -116,12 +116,6 @@ class MessageProxy(ObjectProxy, typing.Protocol):
         """
         ...
 
-    def get_author(self) -> UserProxy:
-        """
-        Returns the author of this message.
-        """
-        ...
-
     def quote_line(self) -> str:
         """
         Returns the 'quote line' of this message, in a single line of plaintext.
