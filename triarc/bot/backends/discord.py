@@ -28,15 +28,14 @@ import trio_asyncio
 
 from ..backend import DuplexBackend
 from ..bot import Message
-
-from ..comms.impl import MessageProxy, UserProxy, ChannelProxy
-from ..comms.base import Messageable, CompositeContentType
+from ..comms.base import CompositeContentType, Messageable
+from ..comms.impl import ChannelProxy, MessageProxy, UserProxy
 
 if typing.TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from ..comms.base import CompositeContentInstance
     from ..backend import Backend
+    from ..comms.base import CompositeContentInstance
 
 
 class UnknownChannelWarning(warnings.UserWarning):
