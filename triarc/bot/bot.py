@@ -43,7 +43,7 @@ class Bot:
         """
 
         self.name = name
-        self.backends: set[Backend] = set()
+        self.backends: dict[str, Backend] = set()
         self.mutators: set[Mutator] = set()
 
         self.channels: dict[tuple[Backend, str], Channel] = {}
@@ -110,7 +110,7 @@ class Bot:
         """
 
         if not backend.pre_bot_register(self):
-            self.backends.add(backend)
+            self.backends[backend.identifier] = backend
 
             backend.listen_all()(functools.partial(self._specific_on_relay, backend))
             backend.listen_all()(functools.partial(self.on_any, backend))

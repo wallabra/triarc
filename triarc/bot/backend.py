@@ -31,7 +31,8 @@ class Backend(typing.Protocol):
     (and thus required) by the Triarc bot that will eventually use it.
     """
 
-    def __init__(self):
+    def __init__(self, identifier: Optional[str] = None):
+        self.identifier = identifier if identifier is not None else str(uuid.uuid4())
         self.mutators: set[Mutator] = set()
 
         self._listeners = {}
