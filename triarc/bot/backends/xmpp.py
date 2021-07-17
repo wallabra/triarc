@@ -14,22 +14,44 @@ from typing import Iterable, List, Literal, Optional, Set
 import attr
 import trio
 
-from triarc.backend import DuplexBackend
-from triarc.bot import MessageLegacy
+from ..backend import DuplexBackend
+from ..bot import MessageLegacy
+from ..comms.impl import ChannelProxy, Messageable, UserProxy, MessageProxy, datetime
+from ..comms.base import Messageable
 
 if typing.TYPE_CHECKING:
-    from triarc.backend import Backend
-
-    from ..comms.base import CompositeContentInstance
-    from ..comms.impl import ChannelProxy, Messageable, UserProxy, datetime
+    from ..backend import Backend
 
 
-class XMPPMessage(Message):
+@attr.s(autoattrib=True)
+class XMPPAddress(Messageable):
+    """A messageable XMPP address."""
+
+    pass
+
+
+@attr.s(autoattrib=True)
+class XMPPChannel(ChannelProxy):
+    """A XMPP MUC."""
+
+    pass
+
+
+@attr.s(autoattrib=True)
+class XMPPUser(UserProxy):
+    """An XMPP user."""
+
+    pass
+
+
+@attr.s(autoattrib=True)
+class XMPPMessage(MessageProxy):
     """A message received from XMPP."""
 
     pass
 
 
+@attr.s(autoattrib=True)
 class XMPPBackend(DuplexBackend):
     """The XMPP backend object."""
 
