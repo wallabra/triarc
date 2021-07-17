@@ -13,10 +13,13 @@ asynchronous functionality.
 
 # WIP: implement proxy objects; comply to triarc rewrite
 
+import datetime
 import logging
+import attr
 import time
 import traceback
 import warnings
+import typing
 from typing import Callable, Optional, Union
 
 import discord
@@ -26,72 +29,59 @@ import trio_asyncio
 from triarc.backend import DuplexBackend
 from triarc.bot import Message
 
+if typing.TYPE_CHECKING:
+    from ..comms.impl import MessageProxy
+    from ..comms.base import CompositeContentInstance
+    from collections.abc import Iterable
+
 
 class UnknownChannelWarning(warnings.UserWarning):
     pass
 
 
-class DiscordMessage(Message):
+@attr.s(autoattrib=True)
+class DiscordMessage(MessageProxy):
     """A message received via the Discord backend."""
 
-    def __init__(self, backend: str, line: str, discord_message: discord.Message):
-        author, channel = discord_message.author, discord_message.channel
+    backend: "DiscordClient"
+    discord_message: discord.Message
 
-        super().__init__(
-            backend,
-            line,
-            author.name,
-            author.id,
-            "#" + getattr(channel, "recipient", channel).name,
-            str(channel.id),
-            when=discord_message.created_at,
+    def origin_is_channel(self) -> bool:
+        return (
+            self.discord_author.author.dm_channel is not None
+            and self.discord_message.channel is self.discord_author.author.dm_channel
         )
 
-        self.discord_author = author
-        self.discord_channel = channel
-        self.discord_message = discord_message
+    def get_id(self) -> str:
+        return str(self.discord_message.id)
 
-    def _split_size(self, line: str):
-        while line:
-            yield line[:1900]
-            line = line[1900:]
+    def get_date(self) -> datetime.datetime:
+        return self.discord_message.created_at
 
-    async def reply(self, reply_line: str, reply_reference: bool) -> bool:
-        reply_reference = True
-        success = True
+    def get_name(self) -> Optional[str]:
+        return None
 
-        for line in self._split_size(reply_line):
-            if not await self.backend.message(
-                self.discord_channel,
-                line,
-                reference=self.discord_message if reply_reference else None,
-            ):
-                success = False
+    def get_backend(self) -> "DiscordClient":
+        return self.backend
 
-            reply_reference = False
+    def get_author(self) -> str:
+        return str(self.discord_message.author.id)
 
-        return success
+    def is_composite(self) -> bool:
+        return bool(self.discord_message.embeds)
 
-    async def reply_channel(self, reply_line: str, reply_reference: bool) -> bool:
-        await self.reply(reply_line, reply_reference)  # it's the same!
+    def get_composite(self) -> Optional[CompositeContentInstance]:
+        # WIP
+        raise NotImplementedError("Work in progress!")
 
-    async def reply_privately(self, reply_line: str, reply_reference: bool) -> bool:
-        channel = (
-            self.discord_author.dm_channel or await self.discord_author.create_dm()
-        )
-        success = True
+    def get_main_line(self) -> str:
+        return self.discord_message.content.split("\n")[0]
 
-        for line in self._split_size(reply_line):
-            if not await self.backend.message(
-                channel,
-                line,
-                reference=self.discord_message if reply_reference else None,
-            ):
-                success = False
+    def get_all_lines(self) -> Iterable[str]:
+        return self.discord_message.content.split("\n")
 
-            reply_reference = False
-
-        return success
+    def get_channel(self) -> str:
+        return str(self.discord_message.channel.id)
 
 
 class DiscordClient(DuplexBackend):
