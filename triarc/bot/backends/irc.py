@@ -13,18 +13,18 @@ from typing import Iterable, List, Literal, Optional, Set
 import attr
 import trio
 
-from triarc.backend import DuplexBackend
-from triarc.bot import MessageLegacy
+from ..backend import DuplexBackend
+from ..bot import MessageLegacy
+from ..comms.impl import ChannelProxy, MessageProxy, UserProxy, Messageable, datetime
 
 if typing.TYPE_CHECKING:
     from triarc.backend import Backend
 
     from ..comms.base import CompositeContentInstance
-    from ..comms.impl import ChannelProxy, Messageable, UserProxy, datetime
 
 
 @attr.s(autoattrib=True)
-class IRCTarget:
+class IRCTarget(Messageable):
     """The IRC backend's universal Messageable implementation."""
 
     backend: "IRCConnection"
@@ -95,7 +95,7 @@ class IRCMessageError(IRCError):
 
 
 @attr.s(autoattrib=True)
-class IRCMessage:
+class IRCMessage(MessageProxy):
     """New IRCMessage, implements MessageProxy."""
 
     backend: "IRCConnection"
@@ -264,41 +264,6 @@ class IRCMessageLegacy(MessageLegacy):
         return success
 
 
-def irc_lex_response(resp: str) -> (str, str, str, bool, List[str], Optional[str]):
-    if resp[0] == ":":
-        resp = resp[1:]
-
-    tokens = iter(resp.split(" "))
-
-    origin = next(tokens)
-    kind = next(tokens)
-
-    if kind.isdigit() and len(kind) == 3:
-        kind = int(kind)
-        is_numeric = True
-
-    else:
-        is_numeric = False
-
-    args = []
-    data = []
-
-    for tok in tokens:
-        if data:
-            data.append(" " + tok)
-
-        elif tok[0] == ":":
-            data.append(tok[1:])
-
-        else:
-            args.append(tok)
-
-    dataline = "".join(data)
-    del data
-
-    return (resp, origin, kind, is_numeric, tuple(args), dataline)
-
-
 @attr.s(autoattrib=True)
 class IRCParams:
     args: list[str] = attr.Factory(list)
@@ -308,7 +273,7 @@ class IRCParams:
 
 
 @attr.s(autoattrib=True)
-class UserRecord:
+class UserRecord(UserProxy):
     """An IRC user record. Also a UserProxy implementation."""
 
     backend: "IRCConnection"
@@ -385,7 +350,7 @@ class UserRecord:
 
 
 @attr.s(autoattrib=True)
-class ChannelRecord:
+class ChannelRecord(ChannelProxy):
     """
     A known IRC channel. Also a ChannelProxy implementation.
     """
@@ -436,8 +401,9 @@ class IRCResponse:
     author: IRCOrigin
     is_numeric: int
     kind: str
-    args: list[str] = attr.Factory(list)
-    data: Optional[str]
+    params: IRCParams
+    # args: list[str] = attr.Factory(list)
+    # data: Optional[str]
 
     def __repr__(self):
         return "IRCResponse({})".format(repr(self.line))
@@ -453,6 +419,42 @@ class IRCResponse:
     @data.setter
     def data(self, value):
         self.params.data = value
+
+    @classmethod
+    def lex(resp: str) -> (str, str, str, bool, List[str], Optional[str]):
+        """Splits a single IRC response line into its constituent parts."""
+        if resp[0] == ":":
+            resp = resp[1:]
+
+        tokens = iter(resp.split(" "))
+
+        origin = next(tokens)
+        kind = next(tokens)
+
+        if kind.isdigit() and len(kind) == 3:
+            kind = int(kind)
+            is_numeric = True
+
+        else:
+            is_numeric = False
+
+        args = []
+        data = []
+
+        for tok in tokens:
+            if data:
+                data.append(" " + tok)
+
+            elif tok[0] == ":":
+                data.append(tok[1:])
+
+            else:
+                args.append(tok)
+
+        dataline = "".join(data)
+        del data
+
+        return (resp, origin, kind, is_numeric, tuple(args), dataline)
 
     @classmethod
     def parse(cls: typing.Type["IRCResponse"], resp: str) -> "IRCResponse":
@@ -471,7 +473,7 @@ class IRCResponse:
             IRCResponse -- The parsed representation.
         """
 
-        resp, origin, kind, is_numeric, args, data = irc_lex_response(resp)
+        resp, origin, kind, is_numeric, args, data = cls.lex(resp)
         return cls(resp, origin, IRCOrigin.create(origin), is_numeric, kind, args, data)
 
 
@@ -1025,3 +1027,11 @@ class IRCConnection(DuplexBackend):
 
     def message_sync(self, target: str, message: str):
         self._out_queue.put(("PRIVMSG {} :{}".format(target, message), None))
+
+    def get_channel(self, addr: str) -> Optional[ChannelProxy]:
+        """Returns a ChannelProxy from a channel address or identifier."""
+        return self.records.add_channel(addr)
+
+    def get_user(self, addr: str) -> Optional[UserProxy]:
+        """Returns an UserProxy from an user address or identifier."""
+        return self.records.add_user(addr)

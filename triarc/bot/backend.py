@@ -6,6 +6,7 @@ The base class of all Triarc backends is here defined.
 
 import logging
 import queue
+import uuid
 import typing
 from collections.abc import Iterable
 
@@ -14,14 +15,14 @@ import trio
 from triarc.mutator import Mutator
 
 if typing.TYPE_CHECKING:
+    from typing import Optional
     from .comm.base import MessageToSend
-    from .comm.impl import CompositeContentType
-    from .comms._impl import MessageProxy
+    from .comm.impl import CompositeContentType, UserProxy, ChannelProxy
 
 BackendType = typing.TypeVar("BackendType", "Backend")
 
 
-class Backend:
+class Backend(typing.Protocol):
     """
     Dummy backend implementation superclass.
 
@@ -30,7 +31,8 @@ class Backend:
     (and thus required) by the Triarc bot that will eventually use it.
     """
 
-    def __init__(self):
+    def __init__(self, identifier: Optional[str] = None):
+        self.identifier = identifier if identifier is not None else str(uuid.uuid4())
         self.mutators: set[Mutator] = set()
 
         self._listeners = {}
@@ -235,6 +237,14 @@ class Backend:
             )
 
         return scope
+
+    def get_channel(self, addr: str) -> Optional[ChannelProxy]:
+        """Returns a ChannelProxy from a channel address or identifier."""
+        ...
+
+    def get_user(self, addr: str) -> Optional[UserProxy]:
+        """Returns an UserProxy from an user address or identifier."""
+        ...
 
 
 class DuplexBackend(Backend):

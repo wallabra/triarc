@@ -17,6 +17,7 @@ from ..bot import Bot
 
 if typing.TYPE_CHECKING:
     from .impl import ChannelProxy, MessageProxy, ProxyType, UserProxy
+    from .base import CompositeContentInstance
 
 
 BackendObjectType = typing.TypeVar("BackendObjectType", "BackendObject")
@@ -209,11 +210,12 @@ class MessageLegacyInterface(typing.Protocol):
         ...
 
 
-class MessageLegacy:
+class MessageLegacy(MessageLegacyInterface, MessageProxy, typing.Protocol):
     """
     A high-level Message base class.
 
-    This used to be implemented by backends.
+    This used to be implemented by backends. Nonetheless, for the sake of
+    backwards compatibility, this now serves as a MessageProxy type.
     """
 
     def __init__(
@@ -236,32 +238,82 @@ class MessageLegacy:
 
     async def reply(self, reply_line: str, reply_reference: bool) -> bool:
         """Replies back at the message anyhow."""
-        pass
+        ...
 
     async def reply_channel(self, reply_line: str, reply_reference: bool) -> bool:
         """Replies back directly to the channel, if said distinction is applicable."""
-        pass
+        ...
 
     async def reply_privately(self, reply_line: str, reply_reference: bool) -> bool:
         """Replies back directly to the author."""
-        pass
+        ...
 
     def __repr__(self) -> str:
         return "{}({} in {}: {})".format(
             type(self).__name__, self.author_name, self.channel, repr(self.line)
         )
 
+    # The MessageProxy implementation goes below.
 
-@attr.s(autoattrib=True)
-class MessageLegacyProxy(BackendObject[MessageProxy]):
-    """
-    A MessageProxy implemented out of a MessageLegacy.
-    """
+    def origin_is_channel(self) -> bool:
+        """
+        Returns whether the origin of this message is a Channel.
+        """
+        return self.underlying.channel
 
-    underlying: MessageLegacy
+    def get_channel(self) -> Optional["ChannelProxy"]:
+        """
+        Returns the origin channel of this message, if applicable.
+        """
+        return self.underlying.backend.get_channel(self.underlying.channel_addr)
+
+    def quote_line(self) -> str:
+        """
+        Returns the 'quote line' of this message, in a single line of plaintext.
+
+        This uses the IRC quote format by default (<name> message), even though
+        MessageLegacy is not necessarily an IRC thing. Then again, it's legacy,
+        and deprecated and most likely never implemented anyways :)
+        """
+        return "<{}> {}".format(self.underlying.author_name, self.underlying.line)
 
     def get_author(self) -> str:
+        """
+        Returns the author of this message, as an UserProxy's identifier string.
+        """
         return self.underlying.author_addr
+
+    def is_composite(self) -> bool:
+        """
+        Returns whether the message is of a composite content kind.
+        """
+        return False
+
+    def get_main_line(self) -> str:
+        """
+        Returns the main contents of this message in a single line.
+        """
+        return self.underlying.line
+
+    def get_all_lines(self) -> Iterable[str]:
+        """
+        If the underlying Backend supports multi-line messages, returns
+        several lines of text, one string per line. Otherwise, is
+        equivalent to [get_main_line()].
+        """
+        return [self.underlying.line]
+
+    def get_composite(self) -> Optional[CompositeContentInstance]:
+        """
+        If applicable, returns the composite content instance of this message.
+        """
+        return None
+
+    def get_date(self) -> datetime.datetime:
+        """
+        Returns the date this message was sent at.
+        """
+        return self.underlying.when
 
     def get_id(self) -> str:
         hasher = hashlib.sha256()
@@ -275,14 +327,5 @@ class MessageLegacyProxy(BackendObject[MessageProxy]):
     def get_name(self) -> typing.Optional[str]:
         return None
 
-    def get_date(self) -> datetime.datetime:
-        return self.underlying.when
-
     def get_backend(self) -> Backend:
         return self.underlying.backend
-
-    def get_main_line(self) -> str:
-        return self.underlying.line
-
-    def get_all_lines(self) -> Iterable[str]:
-        return [self.underlying.line]
