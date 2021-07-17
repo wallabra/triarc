@@ -1027,3 +1027,11 @@ class IRCConnection(DuplexBackend):
 
     def message_sync(self, target: str, message: str):
         self._out_queue.put(("PRIVMSG {} :{}".format(target, message), None))
+
+    def get_channel(self, addr: str) -> Optional[ChannelProxy]:
+        """Returns a ChannelProxy from a channel address or identifier."""
+        return self.records.add_channel(addr)
+
+    def get_user(self, addr: str) -> Optional[UserProxy]:
+        """Returns an UserProxy from an user address or identifier."""
+        return self.records.add_user(addr)

@@ -237,6 +237,14 @@ class Backend(typing.Protocol):
 
         return scope
 
+    def get_channel(self, addr: str) -> Optional[ChannelProxy]:
+        """Returns a ChannelProxy from a channel address or identifier."""
+        ...
+
+    def get_user(self, addr: str) -> Optional[UserProxy]:
+        """Returns an UserProxy from an user address or identifier."""
+        ...
+
 
 class DuplexBackend(Backend):
     """
