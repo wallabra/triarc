@@ -15,28 +15,148 @@ asynchronous functionality.
 
 import datetime
 import logging
-import attr
 import time
 import traceback
-import warnings
 import typing
+import warnings
 from typing import Callable, Optional, Union
 
+import attr
 import discord
 import trio
 import trio_asyncio
 
-from triarc.backend import DuplexBackend
-from triarc.bot import Message
+from ..backend import DuplexBackend
+from ..bot import Message
+
+from ..comms.impl import MessageProxy, UserProxy, ChannelProxy
+from ..comms.base import Messageable, CompositeContentType
 
 if typing.TYPE_CHECKING:
-    from ..comms.impl import MessageProxy
-    from ..comms.base import CompositeContentInstance
     from collections.abc import Iterable
+
+    from ..comms.base import CompositeContentInstance
+    from ..backend import Backend
 
 
 class UnknownChannelWarning(warnings.UserWarning):
     pass
+
+
+@attr.s(autoattrib=True)
+class DiscordMessageable(Messageable):
+    """A generic Messageable implementation for Discord."""
+
+    underlying: discord.abc.Messageable
+
+    async def message_line(self, line: str) -> bool:
+        """Send a single line of plaintext."""
+        await trio_asyncio.aio_as_trio(self.underlying.send)(line)
+
+    async def message_lines(self, *lines: Iterable[str]) -> bool:
+        """Send many lines of plaintext."""
+        whole = "\n".join(lines)
+        await trio_asyncio.aio_as_trio(self.underlying.send)(whole)
+
+    async def message_composite(self, instance: "DiscordEmbedContent") -> bool:
+        """Send a backend-specific composite message."""
+        await trio_asyncio.aio_as_trio(self.underlying.send)(embed=instance.embed)
+
+
+@attr.s(autoattrib=True)
+class DiscordEmbedContent(CompositeContentInstance):
+    embed: discord.Embed
+
+    def get_lines(self) -> typing.Generator[str, None, None]:
+        yield from self.embed.description.split("\n")
+        yield "---"
+
+        for field in self.embed.fields:
+            yield "[" + field.name + "]"
+            yield from field.value.split("\n")
+
+        yield "---"
+        yield from self.embed.footer.split("\n")
+
+
+@attr.s(autoattrib=True)
+class DiscordEmbedContentType(CompositeContentType):
+    """A CompositeContentType based on Discord embeds."""
+
+    def construct_simple(
+        self, *lines: Iterable[str]
+    ) -> Optional[CompositeContentInstance]:
+        return DiscordEmbedContent(discord.Embed(description="\n".join(lines)))
+
+    def construct_titled(
+        self, header: str, *body: Iterable[str]
+    ) -> Optional[CompositeContentInstance]:
+        res = DiscordEmbedContent(discord.Embed(description=header))
+        embed = res.embed
+
+        for line in body:
+            embed.add_field(value=line)
+
+        return res
+
+
+class DiscordUser(UserProxy):
+    """An user accessed via the Discord backend."""
+
+    backend: "DiscordClient"
+    user: discord.User
+
+    @classmethod
+    async def initialize(
+        self, backend: "DiscordClient", user: discord.User
+    ) -> "DiscordUser":
+        """Initializes, including creating a DM channel if needed."""
+        if user.dm_channel is None:
+            await user.create_dm()
+
+        return DiscordUser(backend, user)
+
+    def get_id(self) -> str:
+        return str(self.user.id)
+
+    def get_name(self) -> Optional[str]:
+        return self.user.name
+
+    def get_backend(self) -> Backend:
+        return self.backend
+
+    def as_messageble(self) -> Messageable:
+        # assume create_dm is already called (see async def initialize)
+        return DiscordMessageable(self.user.dm_channel)
+
+    def is_self(self) -> bool:
+        return self.user is self.backend.client.user
+
+    def is_online(self) -> bool:
+        return self.user.status != discord.Status.online
+
+
+class DiscordGuildChannel(ChannelProxy):
+    """A guild text channel accessed via the Discord backend."""
+
+    backend: "DiscordClient"
+    channel: discord.TextChannel
+
+    def get_id(self) -> str:
+        return str(self.channel.id)
+
+    def get_name(self) -> Optional[str]:
+        return self.channel.name
+
+    def get_backend(self) -> Backend:
+        return self.backend
+
+    def as_messageble(self) -> Messageable:
+        return DiscordMessageable(self.channel)
+
+    def list_users(self) -> typing.Optional[typing.Generator[str, None, None]]:
+        for member in self.channel.members:
+            yield str(member.id)
 
 
 @attr.s(autoattrib=True)
