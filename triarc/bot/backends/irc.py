@@ -264,41 +264,6 @@ class IRCMessageLegacy(MessageLegacy):
         return success
 
 
-def irc_lex_response(resp: str) -> (str, str, str, bool, List[str], Optional[str]):
-    if resp[0] == ":":
-        resp = resp[1:]
-
-    tokens = iter(resp.split(" "))
-
-    origin = next(tokens)
-    kind = next(tokens)
-
-    if kind.isdigit() and len(kind) == 3:
-        kind = int(kind)
-        is_numeric = True
-
-    else:
-        is_numeric = False
-
-    args = []
-    data = []
-
-    for tok in tokens:
-        if data:
-            data.append(" " + tok)
-
-        elif tok[0] == ":":
-            data.append(tok[1:])
-
-        else:
-            args.append(tok)
-
-    dataline = "".join(data)
-    del data
-
-    return (resp, origin, kind, is_numeric, tuple(args), dataline)
-
-
 @attr.s(autoattrib=True)
 class IRCParams:
     args: list[str] = attr.Factory(list)
@@ -436,8 +401,9 @@ class IRCResponse:
     author: IRCOrigin
     is_numeric: int
     kind: str
-    args: list[str] = attr.Factory(list)
-    data: Optional[str]
+    params: IRCParams
+    # args: list[str] = attr.Factory(list)
+    # data: Optional[str]
 
     def __repr__(self):
         return "IRCResponse({})".format(repr(self.line))
@@ -453,6 +419,42 @@ class IRCResponse:
     @data.setter
     def data(self, value):
         self.params.data = value
+
+    @classmethod
+    def lex(resp: str) -> (str, str, str, bool, List[str], Optional[str]):
+        """Splits a single IRC response line into its constituent parts."""
+        if resp[0] == ":":
+            resp = resp[1:]
+
+        tokens = iter(resp.split(" "))
+
+        origin = next(tokens)
+        kind = next(tokens)
+
+        if kind.isdigit() and len(kind) == 3:
+            kind = int(kind)
+            is_numeric = True
+
+        else:
+            is_numeric = False
+
+        args = []
+        data = []
+
+        for tok in tokens:
+            if data:
+                data.append(" " + tok)
+
+            elif tok[0] == ":":
+                data.append(tok[1:])
+
+            else:
+                args.append(tok)
+
+        dataline = "".join(data)
+        del data
+
+        return (resp, origin, kind, is_numeric, tuple(args), dataline)
 
     @classmethod
     def parse(cls: typing.Type["IRCResponse"], resp: str) -> "IRCResponse":
@@ -471,7 +473,7 @@ class IRCResponse:
             IRCResponse -- The parsed representation.
         """
 
-        resp, origin, kind, is_numeric, args, data = irc_lex_response(resp)
+        resp, origin, kind, is_numeric, args, data = cls.lex(resp)
         return cls(resp, origin, IRCOrigin.create(origin), is_numeric, kind, args, data)
 
 
