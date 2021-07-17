@@ -341,3 +341,20 @@ class CommandBot(Bot):
             return func(define)
 
         return _decorator
+
+    def remove_command(self, name: str) -> bool:
+        """
+        Attempts to remove a Command by name.
+
+        Arguments:
+            name {str} -- The name of the command.
+
+        Returns:
+            bool -- Whether the command existed and was removed.
+        """
+
+        if name not in self.commands:
+            return False
+
+        del self.commands[name]
+        return True
