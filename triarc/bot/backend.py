@@ -6,6 +6,7 @@ The base class of all Triarc backends is here defined.
 
 import logging
 import queue
+import uuid
 import typing
 from collections.abc import Iterable
 
@@ -14,14 +15,14 @@ import trio
 from triarc.mutator import Mutator
 
 if typing.TYPE_CHECKING:
+    from typing import Optional
     from .comm.base import MessageToSend
-    from .comm.impl import CompositeContentType
-    from .comms._impl import MessageProxy
+    from .comm.impl import CompositeContentType, UserProxy, ChannelProxy
 
 BackendType = typing.TypeVar("BackendType", "Backend")
 
 
-class Backend:
+class Backend(typing.Protocol):
     """
     Dummy backend implementation superclass.
 

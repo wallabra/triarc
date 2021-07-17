@@ -13,18 +13,18 @@ from typing import Iterable, List, Literal, Optional, Set
 import attr
 import trio
 
-from triarc.backend import DuplexBackend
-from triarc.bot import MessageLegacy
+from ..backend import DuplexBackend
+from ..bot import MessageLegacy
+from ..comms.impl import ChannelProxy, MessageProxy, UserProxy, Messageable, datetime
 
 if typing.TYPE_CHECKING:
     from triarc.backend import Backend
 
     from ..comms.base import CompositeContentInstance
-    from ..comms.impl import ChannelProxy, Messageable, UserProxy, datetime
 
 
 @attr.s(autoattrib=True)
-class IRCTarget:
+class IRCTarget(Messageable):
     """The IRC backend's universal Messageable implementation."""
 
     backend: "IRCConnection"
@@ -95,7 +95,7 @@ class IRCMessageError(IRCError):
 
 
 @attr.s(autoattrib=True)
-class IRCMessage:
+class IRCMessage(MessageProxy):
     """New IRCMessage, implements MessageProxy."""
 
     backend: "IRCConnection"
@@ -273,7 +273,7 @@ class IRCParams:
 
 
 @attr.s(autoattrib=True)
-class UserRecord:
+class UserRecord(UserProxy):
     """An IRC user record. Also a UserProxy implementation."""
 
     backend: "IRCConnection"
@@ -350,7 +350,7 @@ class UserRecord:
 
 
 @attr.s(autoattrib=True)
-class ChannelRecord:
+class ChannelRecord(ChannelProxy):
     """
     A known IRC channel. Also a ChannelProxy implementation.
     """
