@@ -23,7 +23,7 @@ if typing.TYPE_CHECKING:
 BackendObjectType = typing.TypeVar("BackendObjectType", "BackendObject")
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class BackendObject(typing.Generic[ProxyType]):
     """
     A base class for common code to assist with Backend abstraction.
@@ -85,7 +85,7 @@ class BackendObject(typing.Generic[ProxyType]):
         return self.proxy.get_name()
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class Channel(BackendObject[ChannelProxy]):
     """
     A high-level wrapper class for backends' channel objects.
@@ -119,7 +119,7 @@ class Channel(BackendObject[ChannelProxy]):
         return await self.proxy.post_message_lines(*lines)
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class User(BackendObject[UserProxy]):
     """A high-level user wrapper class."""
 
@@ -143,7 +143,7 @@ class User(BackendObject[UserProxy]):
         return res
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class Message(BackendObject[MessageProxy]):
     """A high-level message wrapper class."""
 

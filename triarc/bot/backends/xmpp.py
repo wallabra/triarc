@@ -23,35 +23,35 @@ if typing.TYPE_CHECKING:
     from ..backend import Backend
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class XMPPAddress(Messageable):
     """A messageable XMPP address."""
 
     pass
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class XMPPChannel(ChannelProxy):
     """A XMPP MUC."""
 
     pass
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class XMPPUser(UserProxy):
     """An XMPP user."""
 
     pass
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class XMPPMessage(MessageProxy):
     """A message received from XMPP."""
 
     pass
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class XMPPBackend(DuplexBackend):
     """The XMPP backend object."""
 

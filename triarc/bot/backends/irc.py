@@ -23,7 +23,7 @@ if typing.TYPE_CHECKING:
     from ..comms.base import CompositeContentInstance
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class IRCTarget(Messageable):
     """The IRC backend's universal Messageable implementation."""
 
@@ -47,7 +47,7 @@ class IRCTarget(Messageable):
         )
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class IRCOrigin:
     full: str
     type: Literal["user" | "server"]
@@ -94,7 +94,7 @@ class IRCMessageError(IRCError):
     pass
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class IRCMessage(MessageProxy):
     """New IRCMessage, implements MessageProxy."""
 
@@ -264,7 +264,7 @@ class IRCMessageLegacy(MessageLegacy):
         return success
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class IRCParams:
     args: list[str] = attr.Factory(list)
     data: Optional[str] = attr.Factory(
@@ -272,7 +272,7 @@ class IRCParams:
     )
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class UserRecord(UserProxy):
     """An IRC user record. Also a UserProxy implementation."""
 
@@ -349,7 +349,7 @@ class UserRecord(UserProxy):
         return self.online
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class ChannelRecord(ChannelProxy):
     """
     A known IRC channel. Also a ChannelProxy implementation.
@@ -394,7 +394,7 @@ class ChannelRecord(ChannelProxy):
         return self.backend.list_users_at(self.channel)
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class IRCResponse:
     line: str
     origin: str

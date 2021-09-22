@@ -38,7 +38,7 @@ class MessageToSend(typing.Protocol):
         ...
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class PlaintextToSend:
     """A plaintext MessageToSend implementation."""
 
