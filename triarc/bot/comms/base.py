@@ -4,7 +4,7 @@ Basic components at the core of Triarc's definition of messaging.
 
 import typing
 from collections.abc import Iterable
-from typing import Optional, Literal
+from typing import Literal, Optional
 
 from ..backend import Backend
 

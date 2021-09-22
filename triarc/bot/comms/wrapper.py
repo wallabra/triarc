@@ -16,8 +16,8 @@ from ..backend import Backend
 from ..bot import Bot
 
 if typing.TYPE_CHECKING:
-    from .impl import ChannelProxy, MessageProxy, ProxyType, UserProxy
     from .base import CompositeContentInstance
+    from .impl import ChannelProxy, MessageProxy, ProxyType, UserProxy
 
 
 BackendObjectType = typing.TypeVar("BackendObjectType", "BackendObject")

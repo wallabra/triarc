@@ -15,7 +15,8 @@ import trio
 
 from ..backend import DuplexBackend
 from ..bot import MessageLegacy
-from ..comms.impl import ChannelProxy, MessageProxy, UserProxy, Messageable, datetime
+from ..comms.impl import (ChannelProxy, Messageable, MessageProxy, UserProxy,
+                          datetime)
 
 if typing.TYPE_CHECKING:
     from triarc.backend import Backend
