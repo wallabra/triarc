@@ -23,8 +23,8 @@ import discord
 import trio
 import trio_asyncio
 
-from triarc.backend import DuplexBackend
-from triarc.bot import Message
+from ..backend import DuplexBackend
+from ..bot import Message
 
 
 class UnknownChannelWarning(warnings.UserWarning):
