@@ -60,7 +60,7 @@ class PlaintextToSend:
     async def send(self) -> bool:
         return await self.target.message_lines(self.lines)
 
-    def target(self) -> "Messageable":
+    def get_target(self) -> "Messageable":
         return self.target
 
     def contents(self) -> typing.Generator[str, None, None]:
@@ -84,7 +84,7 @@ class CompositeToSend:
     async def send(self) -> bool:
         return await self.target.message_composite(self.instance)
 
-    def target(self) -> "Messageable":
+    def get_target(self) -> "Messageable":
         return self.target
 
     def contents(self) -> typing.Generator[str, None, None]:
