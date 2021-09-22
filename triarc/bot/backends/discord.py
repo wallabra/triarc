@@ -27,7 +27,7 @@ from ..backend import DuplexBackend
 from ..bot import Message
 
 
-class UnknownChannelWarning(warnings.UserWarning):
+class UnknownChannelWarning(UserWarning):
     pass
 
 
