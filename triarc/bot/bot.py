@@ -294,7 +294,7 @@ class CommandBot(Bot):
             line = line.rstrip()
 
             if line.startswith(self.prefix):
-                line = line[len(self.prefix) :]
+                line = line[len(self.prefix):]
 
                 tokens = line.split(" ")
                 cmd = tokens[0]
