@@ -6,8 +6,7 @@ import typing
 from collections.abc import Iterable
 from typing import Optional, Literal
 
-if typing.TYPE_CHECKING:
-    from ..backend import Backend
+from ..backend import Backend
 
 
 class Messageable(typing.Protocol):
