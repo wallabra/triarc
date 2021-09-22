@@ -229,6 +229,8 @@ class CommandBot(Bot):
     """
     A Bot subclass that responds to commands.
 
+    This class is deprecated by the Reactor.
+
     CommandBot subclasses can use the init method to
     add commands, or load plugins that do so.
     """
