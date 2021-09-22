@@ -17,11 +17,11 @@ from typing import Optional, Set, Union
 
 import trio
 
-import triarc
-from triarc.errors import TriarcBotBackendRefusedError
-from triarc.mutator import Mutator
+from .errors import TriarcBotBackendRefusedError
+from .mutator import Mutator
 
 from .comms.wrapper import Channel, Message, MessageLegacyProxy, User
+from .comms.impl import MessageProxy, UserProxy
 
 if typing.TYPE_CHECKING:
     from .comms.impl import Backend, ChannelProxy, MessageProxy, UserProxy
