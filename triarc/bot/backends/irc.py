@@ -15,8 +15,9 @@ import trio
 
 from ..backend import ThrottledBackend
 from ..bot import MessageLegacy
-from ..comms.impl import ChannelProxy, Messageable, MessageProxy, UserProxy, datetime
 from ..comms.base import CompositeContentInstance
+from ..comms.impl import (ChannelProxy, Messageable, MessageProxy, UserProxy,
+                          datetime)
 
 if typing.TYPE_CHECKING:
     from ..backend import Backend

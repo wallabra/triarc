@@ -2,8 +2,10 @@
 Mutators are extensions that can modify the behavior of Triarc bots.
 """
 
-import attr
 import typing
+
+import attr
+
 import triarc
 
 

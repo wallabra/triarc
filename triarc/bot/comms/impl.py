@@ -9,7 +9,7 @@ from collections.abc import Iterable
 from typing import Optional
 
 from ..backend import Backend
-from .base import Messageable, CompositeContentInstance
+from .base import CompositeContentInstance, Messageable
 
 if typing.TYPE_CHECKING:
     from .base import CompositeContentInstance

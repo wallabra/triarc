@@ -6,7 +6,8 @@ several utilities expected to be available even via RPC.
 """
 
 import typing
-import attrs
+
+import attr
 
 if typing.TYPE_CHECKING:
     from .bot import Bot

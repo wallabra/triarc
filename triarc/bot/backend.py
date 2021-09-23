@@ -4,18 +4,18 @@ The Backend class.
 The base class of all Triarc backends is here defined.
 """
 
-import attr
 import logging
 import queue
 import typing
 import uuid
 from collections.abc import Iterable
 
+import attr
 import trio
 
-from .mutator import Mutator
 from .comms.base import CompositeContentType
 from .comms.impl import ChannelProxy, UserProxy
+from .mutator import Mutator
 
 if typing.TYPE_CHECKING:
     from typing import Optional
@@ -255,6 +255,7 @@ class Backend(typing.Protocol):
         """Get an UserProxy from an user address or identifier."""
         ...
 
+
 async def start(self):
     """
     Starts the backend.
@@ -283,6 +284,7 @@ async def start(self):
         nursery.start_soon(self._watch_stop_scopes, _loaded_stop_scopes)
 
     self._running = False
+
 
 async def stop(self):
     """Asks this Backend to stop gracefully."""
@@ -320,6 +322,7 @@ async def stop(self):
     @classmethod
     def when_running(f):
         """Decorator for a function that should run in 'while self.running'."""
+
         def _inner(self, *args, **kwargs):
             while self.running():
                 f(*args, **kwargs)
@@ -329,6 +332,7 @@ async def stop(self):
     @classmethod
     def stop_scope(f):
         """Decorator that wraps a function in a stop scope."""
+
         def _inner(self, *args, **kwargs):
             with self.new_stop_scope():
                 f(*args, **kwargs)
@@ -443,7 +447,6 @@ class ThrottledBackend(Backend, typing.Protocol):
         """
 
         return self.max_heat
-
 
     def next_send_time(self):
         """
