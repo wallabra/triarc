@@ -204,6 +204,10 @@ class RPCHandlerStateMachine(statedhandler.HandlerStateMachine):
     states: dict[str, statedhandler.HandlingState] = attr.Factory(dict)
     state: typing.Optional[statedhandler.HandlingState] = None
 
+    def is_on_state(self) -> bool:
+        """Returns True if and only if there is a non-null current state."""
+        return self.state is not None
+
     def get_state(self) -> typing.Optional[statedhandler.HandlingState]:
         """Get the current state object."""
         return self.state
@@ -317,8 +321,6 @@ class TrioRPCServer(contextlib.AbstractAsyncContextManager, typing.Protocol):
 
     bind_addr: str = "localhost"
     bind_port: int = 9580
-
-    password: typing.Optional[str] = None
 
     scope: typing.Optional[trio.CancelScope] = None
     running: bool = False
