@@ -280,7 +280,7 @@ class RPCConnection:
         if state is None:
             raise RPCStateError("No state to handle RPC call!")
 
-        callback = getattr(state, "rpc_" + name, None)
+        callback = getattr(state, "rpc_" + name.replace('/', '_'), None)
 
         if not callback:
             raise RPCStateError("State has no method to handle RPC call!")
@@ -294,7 +294,7 @@ class RPCConnection:
         state = self.state_machine.get_state()
 
         if state is not None:
-            return hasattr(state, "rpc_" + name)
+            return hasattr(state, "rpc_" + name.replace('/', '_'))
 
         return False
 
