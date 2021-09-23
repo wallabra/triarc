@@ -3,15 +3,17 @@ The Command Reactor interface as used by bots.
 """
 
 import typing
+
 import attr
 
 if typing.TYPE_CHECKING:
     from collections.abc import Iterable
+    from typing import Literal, Optional, Union
+
     from .backend import Backend
     from .bot import Bot
-    from .comms.wrapper import Message
     from .comms.base import ResponseDescriptor
-    from typing import Union, Optional, Literal
+    from .comms.wrapper import Message
 
 
 @attr.s(autoattrib=True)
