@@ -266,6 +266,91 @@ class ThrottledBackend(Backend, typing.Protocol):
     logger: logging.Logger = attr.Factory(lambda: None)
     out_queue: queue.Queue = attr.Factory(queue.Queue)
     heat: int = 0
+    start_funcs: typing.ClassVar[list[str]] = []
+
+    def running(self):
+        """Returns whether this IRC connection is still up and running.
+
+            >>> conn = IRCConnection('this.does.not.exist')
+            >>> conn.running()
+            False
+
+        Returns:
+            bool -- Self-explanatory.
+        """
+
+        return self._running and not self._stopping
+
+    async def _cooldown(self):
+        """
+        This async loop is responsible for 'cooling' the backend
+        down, at a specified frequency. It's part of the
+        throttling mechanism.
+        """
+
+        if self.throttle:
+            with self.new_stop_scope():
+                while self.running():
+                    self.heat = max(self.heat - 1, 0)
+
+                    await trio.sleep(1 / self.cooldown_hertz)
+
+    async def send(self, line: any):
+        """
+        Queues to send a backend-specific object.
+        May be throttled. Despite being async, this function
+        blocks, because it must emit the _SENT event.
+
+        Arguments:
+            line {str} -- The line to send.
+        """
+
+        waiting = [True]
+
+        async def post_wait():
+            waiting[0] = False
+
+        self.out_queue.put((line, post_wait))
+
+        with self.new_stop_scope():
+            while waiting[0]:
+                await trio.sleep(0.05)
+
+    async def _sender(self):
+        """
+        This async loop is responsible for sending messages,
+        handling throttling, and other similar things.
+        """
+
+        with self.new_stop_scope():
+            while self.running():
+                while not self.out_queue.empty():
+                    if self.throttle:
+                        self.heat += 1
+
+                        if self.heat > self.max_heat:
+                            break
+
+                    item, on_send = self.out_queue.get()
+
+                    await self._send(item)
+
+                    if on_send:
+                        await on_send()
+
+                    await self.receive_message("_SENT", item)
+
+                if self.running():
+                    if self.heat > self.max_heat and self.throttle:
+                        while self.heat:
+                            await trio.sleep(0.2)
+
+                    else:
+                        await trio.sleep(0.05)
+
+    async def _send(self, item: any):
+        """Underlying method that sends a message through the Backend."""
+        ...
 
     def maximum_heat(self) -> int:
         """
@@ -276,3 +361,69 @@ class ThrottledBackend(Backend, typing.Protocol):
         """
 
         return self.max_heat
+
+    async def start(self):
+        """
+        Starts the backend.
+        """
+
+        connection = await trio.open_tcp_stream(self.host, self.port)
+
+        if self.ssl_context:
+            connection = trio.SSLStream(connection, self.ssl_context)
+
+        self.connection = connection
+        self._running = True
+
+        async with trio.open_nursery() as nursery:
+
+            async def _loaded_stop_scopes():
+                nursery.start_soon(self._cooldown)
+                nursery.start_soon(self._sender)
+
+                for func_name in self.start_funcs:
+                    nursery.start_soon(getattr(self, func_name))
+
+                if self.auto_do_irc_handshake:
+                    nursery.start_soon(self.send_irc_handshake)
+
+            nursery.start_soon(self._watch_stop_scopes, _loaded_stop_scopes)
+
+        self._running = False
+
+    async def stop(self):
+        """Asks this Backend to stop gracefully."""
+        self._stopping = True
+
+        for scope in self.stop_scopes:
+            scope.cancel()
+
+        await self.gracefully_close()
+
+        while self.running():
+            await trio.sleep(0.05)
+
+        self._running = False
+        self._stopping = False
+
+    async def gracefully_close(self):
+        """Perform graceful closure operations."""
+        ...
+
+    # Convenience decorators below.
+
+    def when_running(f):
+        """Decorator for a function that should run in 'while self.running'."""
+        def _inner(self, *args, **kwargs):
+            while self.running():
+                f(*args, **kwargs)
+
+        return _inner
+
+    def stop_scope(f):
+        """Decorator that wraps a function in a stop scope."""
+        def _inner(self, *args, **kwargs):
+            with self.new_stop_scope():
+                f(*args, **kwargs)
+
+        return _inner

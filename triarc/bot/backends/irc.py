@@ -602,6 +602,8 @@ class IRCConnection(ThrottledBackend):
     that function on IRC.
     """
 
+    start_funcs = ["_receiver"]
+
     def __init__(
         self,
         host: str,
@@ -702,87 +704,8 @@ class IRCConnection(ThrottledBackend):
         else:
             self.nickserv = None
 
-    def running(self):
-        """Returns whether this IRC connection is still up and running.
-
-            >>> conn = IRCConnection('this.does.not.exist')
-            >>> conn.running()
-            False
-
-        Returns:
-            bool -- Self-explanatory.
-        """
-
-        return self._running and not self._stopping
-
-    async def _cooldown(self):
-        """
-        This async loop is responsible for 'cooling' the bot
-        down, at a specified frequency. It's part of the
-        throttling mechanism.
-        """
-
-        if self.throttle:
-            with self.new_stop_scope():
-                while self.running():
-                    self.heat = max(self.heat - 1, 0)
-
-                    await trio.sleep(1 / self.cooldown_hertz)
-
-    async def send(self, line: str):
-        """
-        Queues to send a raw IRC command (string).
-        May be throttled. This function
-        blocks, because it must emit the _SENT event.
-
-        Arguments:
-            line {str} -- The line to send.
-        """
-
-        waiting = [True]
-
-        async def post_wait():
-            waiting[0] = False
-
-        self.out_queue.put((line, post_wait))
-
-        with self.new_stop_scope():
-            while waiting[0]:
-                await trio.sleep(0.05)
-
-    async def _sender(self):
-        """
-        This async loop is responsible for sending messages,
-        handling throttling, and other similar things.
-        """
-
-        with self.new_stop_scope():
-            while self.running():
-                while not self.out_queue.empty():
-                    if self.throttle:
-                        self.heat += 1
-
-                        if self.heat > self.max_heat:
-                            break
-
-                    item, on_send = self.out_queue.get()
-
-                    await self._send(item)
-
-                    if on_send:
-                        await on_send()
-
-                    await self.receive_message("_SENT", item)
-
-                if self.running():
-                    if self.heat > self.max_heat and self.throttle:
-                        while self.heat:
-                            await trio.sleep(0.2)
-
-                    else:
-                        await trio.sleep(0.05)
-
     async def _send(self, item: str):
+        """Send an actual IRC event through this backend."""
         await self.connection.send_all(str(item).encode("utf-8") + b"\r\n")
 
     async def _receive(self, line: str):
@@ -877,6 +800,11 @@ class IRCConnection(ThrottledBackend):
 
         return True
 
+    async def gracefully_close(self):
+        return await self.connection.aclose()
+
+    @when_running
+    @stop_scope
     async def _receiver(self):
         with self.new_stop_scope():
             while self.running():
@@ -935,47 +863,6 @@ class IRCConnection(ThrottledBackend):
             # Prevent joining the same channels again (e.g. if the bot is
             # kicked/banned from them and send_irc_handshake is called again).
             self.join_channels = set()
-
-    async def start(self):
-        """
-        Starts the IRC connection.
-        """
-
-        connection = await trio.open_tcp_stream(self.host, self.port)
-
-        if self.ssl_context:
-            connection = trio.SSLStream(connection, self.ssl_context)
-
-        self.connection = connection
-        self._running = True
-
-        async with trio.open_nursery() as nursery:
-
-            async def _loaded_stop_scopes():
-                nursery.start_soon(self._cooldown)
-                nursery.start_soon(self._sender)
-                nursery.start_soon(self._receiver)
-
-                if self.auto_do_irc_handshake:
-                    nursery.start_soon(self.send_irc_handshake)
-
-            nursery.start_soon(self._watch_stop_scopes, _loaded_stop_scopes)
-
-        self._running = False
-
-    async def stop(self):
-        self._stopping = True
-
-        for scope in self.stop_scopes:
-            scope.cancel()
-
-        await self.connection.aclose()
-
-        while self.running():
-            await trio.sleep(0.05)
-
-        self._running = False
-        self._stopping = False
 
     # === IRC commands ===
 
