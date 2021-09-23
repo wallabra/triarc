@@ -43,7 +43,7 @@ class RPCCallKeeper:
     """A RPC call keeper."""
 
     calls: dict[
-        uuid.UUID,
+        str,
         tuple[
             typing.Callable[[RPCResponseTarget, typing.Any], typing.Awaitable[None]],
             typing.Callable[[RPCResponseTarget, str], typing.Awaitable[None]],
@@ -57,7 +57,7 @@ class RPCCallKeeper:
         target: RPCResponseTarget,
     ):
         """Handle a return."""
-        identifier = uuid.UUID(call_id)
+        identifier = str(call_id)
 
         if identifier not in self.calls:
             warnings.warn(
@@ -76,7 +76,7 @@ class RPCCallKeeper:
         target: RPCResponseTarget,
     ):
         """Handle a call error."""
-        identifier = uuid.UUID(call_id)
+        identifier = str(call_id)
 
         if identifier not in self.calls:
             warnings.warn("Ignoring error on unknown call: {}".format(repr(identifier)))
@@ -94,19 +94,20 @@ class RPCCallKeeper:
         on_error: typing.Optional[
             typing.Callable[[RPCResponseTarget, str], typing.Awaitable[None]]
         ] = None,
-    ) -> uuid.UUID:
+        identifier: str = "",
+    ) -> str:
         """Sets up a call to wait for a corresponding return or an error from remote."""
 
-        identifier = uuid.uuid4()
+        identifier = identifier or str(uuid.uuid4())
         data_in, data_out = trio.open_memory_channel(0)
 
-        async def call_on_return(target: RPCResponseTarget, data):
+        async def call_on_return(target: RPCResponseTarget, data: typing.Any):
             del self.calls[identifier]
 
             if callback:
                 await callback(target, data)
 
-        async def call_on_error(target: RPCResponseTarget, status):
+        async def call_on_error(target: RPCResponseTarget, status: str):
             del self.calls[identifier]
 
             if on_error:
@@ -261,6 +262,32 @@ class RPCConnection:
         """Close the associated RPC target."""
         await self.target.close()
 
+    async def call(
+        self,
+        method: str,
+        data: typing.Any,
+        on_error: typing.Callback[str] = None,
+        id: str = None,
+    ):
+        """Call a remote RPC method."""
+
+        return_queue_in, return_queue_out = trio.open_memory_channel(0)
+
+        async def call_on_return(_target: RPCResponseTarget, data: typing.Any):
+            return_queue_in.send(data)
+            return_queue_in.aclose()
+
+        async def call_on_error(_target: RPCResponseTarget, status: str):
+            if on_error:
+                on_error(status)
+
+            return_queue_in.aclose()
+
+        id = await self.server.call_keeper.set_call(call_on_return, call_on_error, id)
+
+        for data in return_queue_out:
+            return await data
+
     async def respond(self, data: typing.Any):
         """Respond some data through this RPC connection."""
         await self.target._object(data)
@@ -280,7 +307,7 @@ class RPCConnection:
         if state is None:
             raise RPCStateError("No state to handle RPC call!")
 
-        callback = getattr(state, "rpc_" + name.replace('/', '_'), None)
+        callback = getattr(state, "rpc_" + name.replace("/", "_"), None)
 
         if not callback:
             raise RPCStateError("State has no method to handle RPC call!")
@@ -294,7 +321,7 @@ class RPCConnection:
         state = self.state_machine.get_state()
 
         if state is not None:
-            return hasattr(state, "rpc_" + name.replace('/', '_'))
+            return hasattr(state, "rpc_" + name.replace("/", "_"))
 
         return False
 
@@ -328,6 +355,9 @@ class TrioRPCServer(contextlib.AbstractAsyncContextManager, typing.Protocol):
     def setup_handlers(self, machine: RPCHandlerStateMachine):
         """Setup a RPCHandlerStateMachine to handle a new Connection."""
         ...
+
+    async def stop(self):
+        self.scope.cancel()
 
     async def conn_handler(self, server_stream):
         target = TrioRPCTarget(server_stream)
