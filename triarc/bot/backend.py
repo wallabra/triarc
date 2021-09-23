@@ -47,6 +47,8 @@ class Backend(typing.Protocol):
     stop_scopes: set = attr.Factory(set)
     stop_scope_watcher: typing.Optional[trio.NurseryManager] = None
 
+    running: bool = False
+
     def get_composite_types(self) -> Iterable[CompositeContentType]:
         """Get a list of all CompositeContent implementation types supported."""
         return []
@@ -141,13 +143,13 @@ class Backend(typing.Protocol):
 
     async def start(self):
         """Starts the backend."""
-        ...
+        running = True
 
     async def stop(self):
         """Stops the backend."""
-        ...
+        running = False
 
-    async def message(self, target: str, message: str):
+    async def message(self, target: any, message: str):
         """Standard backend method, which must be implemented by
         every backend. Sends a message to a target.
 
@@ -157,7 +159,7 @@ class Backend(typing.Protocol):
         """
         ...
 
-    def message_sync(self, target: str, message: str):
+    def message_sync(self, target: any, message: str):
         """Synchronous backend method, which must be implemented by
         every backend if possible (and raise a RuntimeError if it
         is not possible). Sends a message to a target, without blocking.
@@ -252,6 +254,86 @@ class Backend(typing.Protocol):
     def get_user(self, addr: str) -> typing.Optional[UserProxy]:
         """Get an UserProxy from an user address or identifier."""
         ...
+
+async def start(self):
+    """
+    Starts the backend.
+    """
+
+    connection = await trio.open_tcp_stream(self.host, self.port)
+
+    if self.ssl_context:
+        connection = trio.SSLStream(connection, self.ssl_context)
+
+    self.connection = connection
+    self._running = True
+
+    async with trio.open_nursery() as nursery:
+
+        async def _loaded_stop_scopes():
+            nursery.start_soon(self._cooldown)
+            nursery.start_soon(self._sender)
+
+            for func_name in self.start_funcs:
+                nursery.start_soon(getattr(self, func_name))
+
+            if self.auto_do_irc_handshake:
+                nursery.start_soon(self.send_irc_handshake)
+
+        nursery.start_soon(self._watch_stop_scopes, _loaded_stop_scopes)
+
+    self._running = False
+
+async def stop(self):
+    """Asks this Backend to stop gracefully."""
+    self._stopping = True
+
+    for scope in self.stop_scopes:
+        scope.cancel()
+
+    await self.gracefully_close()
+
+    while self.running():
+        await trio.sleep(0.05)
+
+    self._running = False
+    self._stopping = False
+
+    async def gracefully_close(self):
+        """Perform graceful closure operations."""
+        ...
+
+    def running(self):
+        """Returns whether this client is still up and running.
+
+        Returns:
+            bool -- Self-explanatory.
+        """
+
+        return self._running and not self._stopping
+
+    async def deinit(self):
+        ...
+
+    # Convenience decorators below.
+
+    @classmethod
+    def when_running(f):
+        """Decorator for a function that should run in 'while self.running'."""
+        def _inner(self, *args, **kwargs):
+            while self.running():
+                f(*args, **kwargs)
+
+        return _inner
+
+    @classmethod
+    def stop_scope(f):
+        """Decorator that wraps a function in a stop scope."""
+        def _inner(self, *args, **kwargs):
+            with self.new_stop_scope():
+                f(*args, **kwargs)
+
+        return _inner
 
 
 @attr.s(auto_attribs=True)
@@ -362,68 +444,35 @@ class ThrottledBackend(Backend, typing.Protocol):
 
         return self.max_heat
 
-    async def start(self):
+
+    def next_send_time(self):
         """
-        Starts the backend.
+        Finds the next time where it will be acceptable
+        to send another message, according to cooldown
+        metrics.
         """
 
-        connection = await trio.open_tcp_stream(self.host, self.port)
+        base = self._last_send_time + self.min_send_interval
 
-        if self.ssl_context:
-            connection = trio.SSLStream(connection, self.ssl_context)
+        if self._overheated:
+            return base + self.heat / self.cooldown_hertz
 
-        self.connection = connection
-        self._running = True
+        else:
+            return base
 
-        async with trio.open_nursery() as nursery:
+    def heat_up(self):
+        """Try to increase heat, and check for overheat."""
+        self.heat += 1
 
-            async def _loaded_stop_scopes():
-                nursery.start_soon(self._cooldown)
-                nursery.start_soon(self._sender)
+        if self.heat > self.max_heat:
+            self._overheated = True
 
-                for func_name in self.start_funcs:
-                    nursery.start_soon(getattr(self, func_name))
+    def heat_down(self):
+        """Lower heat, and unset overheat if applicable and below threshold."""
+        self.heat -= 1
 
-                if self.auto_do_irc_handshake:
-                    nursery.start_soon(self.send_irc_handshake)
+        if self.heat <= 0:
+            self.heat = 0
 
-            nursery.start_soon(self._watch_stop_scopes, _loaded_stop_scopes)
-
-        self._running = False
-
-    async def stop(self):
-        """Asks this Backend to stop gracefully."""
-        self._stopping = True
-
-        for scope in self.stop_scopes:
-            scope.cancel()
-
-        await self.gracefully_close()
-
-        while self.running():
-            await trio.sleep(0.05)
-
-        self._running = False
-        self._stopping = False
-
-    async def gracefully_close(self):
-        """Perform graceful closure operations."""
-        ...
-
-    # Convenience decorators below.
-
-    def when_running(f):
-        """Decorator for a function that should run in 'while self.running'."""
-        def _inner(self, *args, **kwargs):
-            while self.running():
-                f(*args, **kwargs)
-
-        return _inner
-
-    def stop_scope(f):
-        """Decorator that wraps a function in a stop scope."""
-        def _inner(self, *args, **kwargs):
-            with self.new_stop_scope():
-                f(*args, **kwargs)
-
-        return _inner
+            if self._overheated:
+                self._overheated = False
