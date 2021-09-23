@@ -25,7 +25,7 @@ if typing.TYPE_CHECKING:
 BackendType = typing.TypeVar("BackendType", "Backend")
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class Backend(typing.Protocol):
     """
     Dummy backend implementation superclass.
