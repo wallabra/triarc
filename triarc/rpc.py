@@ -215,7 +215,17 @@ class RPCHandlerStateMachine(statedhandler.HandlerStateMachine):
 
     def set_state_name(self, state: str):
         """Set the current state by name."""
+        if self.state and hasattr(self.state, "exit_rpc"):
+            getattr(self.state, "exit_rpc")(
+                self.connection, self, self.connection.context
+            )
+
         self.state = self.states[state]
+
+        if self.state and hasattr(self.state, "enter_rpc"):
+            getattr(self.state, "enter_rpc")(
+                self.connection, self, self.connection.context
+            )
 
     def has_states(self, name: str) -> bool:
         """Returns True if this state exists by name."""
