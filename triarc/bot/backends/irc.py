@@ -16,11 +16,10 @@ import trio
 from ..backend import DuplexBackend
 from ..bot import MessageLegacy
 from ..comms.impl import ChannelProxy, Messageable, MessageProxy, UserProxy, datetime
+from ..comms.base import CompositeContentInstance
 
 if typing.TYPE_CHECKING:
     from ..backend import Backend
-
-    from ..comms.base import CompositeContentInstance
 
 
 @attr.s(auto_attribs=True)
