@@ -15,11 +15,10 @@ import trio
 
 from ..backend import DuplexBackend
 from ..bot import MessageLegacy
-from ..comms.impl import (ChannelProxy, Messageable, MessageProxy, UserProxy,
-                          datetime)
+from ..comms.impl import ChannelProxy, Messageable, MessageProxy, UserProxy, datetime
 
 if typing.TYPE_CHECKING:
-    from triarc.backend import Backend
+    from ..backend import Backend
 
     from ..comms.base import CompositeContentInstance
 
@@ -107,7 +106,7 @@ class IRCMessage(MessageProxy):
 
     @classmethod
     def create(
-        cls: typing.Typé["IRCMessage"],
+        cls: typing.Type["IRCMessage"],
         backend: "IRCConnection",
         origin: str,
         line: str,
@@ -115,12 +114,12 @@ class IRCMessage(MessageProxy):
     ) -> "IRCMessage":
         """Creates an IRCMessage object for a received message."""
         return cls(
-            backend, IRCOrigin.parse(origin), target, line, datetime.datetime.utcnow()
+            backend, IRCOrigin.create(origin), target, line, datetime.datetime.utcnow()
         )
 
     @classmethod
     def from_response(
-        cls: typing.Typé["IRCMessage"],
+        cls: typing.Type["IRCMessage"],
         backend: "IRCConnection",
         response: "IRCResponse",
     ) -> "IRCMessage":

@@ -88,4 +88,4 @@ class CompositeToSend:
         return self.target
 
     def contents(self) -> typing.Generator[str, None, None]:
-        yield from self.composite.get_lines()
+        yield from self.instance.get_lines()

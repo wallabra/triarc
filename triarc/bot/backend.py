@@ -14,12 +14,12 @@ from collections.abc import Iterable
 import trio
 
 from .mutator import Mutator
+from .comms.base import CompositeContentType
 
 if typing.TYPE_CHECKING:
     from typing import Optional
 
     from .comms.tosend import MessageToSend
-    from .comms.base import CompositeContentType
     from .comms.impl import ChannelProxy, UserProxy
 
 BackendType = typing.TypeVar("BackendType", "Backend")
@@ -44,8 +44,8 @@ class Backend(typing.Protocol):
         dict
     )
 
-    self.stop_scopes: set = attr.Factory(set)
-    self.stop_scope_watcher: typing.Optional[trio.NurseryManager] = None
+    stop_scopes: set = attr.Factory(set)
+    stop_scope_watcher: typing.Optional[trio.NurseryManager] = None
 
     def get_composite_types(self) -> Iterable[CompositeContentType]:
         """Get a list of all CompositeContent implementation types supported."""
