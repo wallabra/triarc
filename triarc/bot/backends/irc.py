@@ -172,7 +172,7 @@ class IRCMessage(MessageProxy):
             <AntonTheIRCGuy> I said some stuff! Hooray me!
         """
         if self.irc_origin.is_server():
-            return "({}: {})".format(self.irc_origin.full, self.line)
+            return "(<{}> {})".format(self.irc_origin.full, self.line)
 
         return "<{}> {}".format(self.irc_origin.nick, self.line)
 
