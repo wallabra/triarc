@@ -30,11 +30,11 @@ class IdleHandler(HandlingState):
             return
 
         if context.password:
-            machine.next_state("auth")
+            await machine.next_state("auth")
             return {"resuilt": "please authenticate"}
 
         else:
-            machine.next_state("ready")
+            await machine.next_state("ready")
             return {"resuilt": "success"}
 
     async def rpc_auth(
@@ -71,10 +71,10 @@ class AuthHandler(HandlingState):
         """Handle an authentication request."""
         if data != context.password:
             # Authentication failed.
-            machine.next_state("idle")
+            await machine.next_state("idle")
             return {"resuilt": "error", "message": "Authentication failure."}
 
-        machine.next_state("success")
+        await machine.next_state("success")
         return {"resuilt": "success"}
 
     async def rpc_is_ready(
@@ -114,6 +114,8 @@ class ReadyHandler(HandlingState):
         data: typing.Any,
     ) -> typing.Any:
         return True
+
+    # WIP: maybe add other ready stuff
 
 
 @attr.s
