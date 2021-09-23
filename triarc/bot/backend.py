@@ -4,24 +4,28 @@ The Backend class.
 The base class of all Triarc backends is here defined.
 """
 
+import attr
 import logging
 import queue
-import uuid
 import typing
+import uuid
 from collections.abc import Iterable
 
 import trio
 
-from triarc.mutator import Mutator
+from .mutator import Mutator
+from .comms.base import CompositeContentType
+from .comms.impl import ChannelProxy, UserProxy
 
 if typing.TYPE_CHECKING:
     from typing import Optional
-    from .comm.base import MessageToSend
-    from .comm.impl import CompositeContentType, UserProxy, ChannelProxy
+
+    from .comms.tosend import MessageToSend
 
 BackendType = typing.TypeVar("BackendType", "Backend")
 
 
+@attr.s(auto_attribs=True)
 class Backend(typing.Protocol):
     """
     Dummy backend implementation superclass.
@@ -31,15 +35,19 @@ class Backend(typing.Protocol):
     (and thus required) by the Triarc bot that will eventually use it.
     """
 
-    def __init__(self, identifier: Optional[str] = None):
-        self.identifier = identifier if identifier is not None else str(uuid.uuid4())
-        self.mutators: set[Mutator] = set()
+    identifier: str = attr.Factory(
+        lambda identifier: identifier if identifier is not None else str(uuid.uuid4())
+    )
+    mutators: dict[str, Mutator] = attr.Factory(dict)
+    listeners: dict[str, set[typing.Callable[[str, any], None]]] = attr.Factory(dict)
+    globallisteners: dict[str, set[typing.Callable[[str, any], None]]] = attr.Factory(
+        dict
+    )
 
-        self._listeners = {}
-        self._global_listeners = set()
+    stop_scopes: set = attr.Factory(set)
+    stop_scope_watcher: typing.Optional[trio.NurseryManager] = None
 
-        self.stop_scopes = set()
-        self.stop_scope_watcher = None  # type: trio.NurseryManager
+    running: bool = False
 
     def get_composite_types(self) -> Iterable[CompositeContentType]:
         """Get a list of all CompositeContent implementation types supported."""
@@ -66,7 +74,7 @@ class Backend(typing.Protocol):
         """
 
         def _decorator(func):
-            self._listeners.setdefault(name, set()).add(func)
+            self.listeners.setdefault(name, set()).add(func)
             return func
 
         return _decorator
@@ -80,7 +88,7 @@ class Backend(typing.Protocol):
         """
 
         def _decorator(func):
-            self._global_listeners.add(func)
+            self.globallisteners.add(func)
             return func
 
         return _decorator
@@ -124,7 +132,7 @@ class Backend(typing.Protocol):
             data {any} -- The message's data.
         """
 
-        lists = self._listeners.get(kind, set()) | self._global_listeners
+        lists = self.listeners.get(kind, set()) | self.globallisteners
 
         for listener in lists:
             await listener(kind, data)
@@ -135,15 +143,13 @@ class Backend(typing.Protocol):
 
     async def start(self):
         """Starts the backend."""
-
-        raise NotImplementedError("Please subclass and implement!")
+        running = True
 
     async def stop(self):
         """Stops the backend."""
+        running = False
 
-        raise NotImplementedError("Please subclass and implement!")
-
-    async def message(self, target: str, message: str):
+    async def message(self, target: any, message: str):
         """Standard backend method, which must be implemented by
         every backend. Sends a message to a target.
 
@@ -151,8 +157,9 @@ class Backend(typing.Protocol):
             target {str} -- The target of the message (user, channel, etc).
             message {str} -- The message to be sent.
         """
+        ...
 
-    def message_sync(self, target: str, message: str):
+    def message_sync(self, target: any, message: str):
         """Synchronous backend method, which must be implemented by
         every backend if possible (and raise a RuntimeError if it
         is not possible). Sends a message to a target, without blocking.
@@ -161,6 +168,7 @@ class Backend(typing.Protocol):
             target {str} -- The target of the message (user, channel, etc).
             message {str} -- The message to be sent.
         """
+        ...
 
     def post_bot_register(self, bot):
         """
@@ -172,6 +180,7 @@ class Backend(typing.Protocol):
         Arguments:
             bot {triarc.bot.Bot}: The Bot that registers this Backend.
         """
+        ...
 
     def pre_bot_register(self, bot):
         """
@@ -198,7 +207,7 @@ class Backend(typing.Protocol):
             nursery.start_soon(_run_until_stopped)
             nursery.start_soon(on_loaded)
 
-    def construct_message_lines(self, *lines: Iterable[str]) -> "MessageToSend":
+    def construct_message_lines(self, *lines: typing.Iterable[str]) -> "MessageToSend":
         """
         Constructs a new MessageToSend object from one or more
         lines of plaintext.
@@ -238,43 +247,232 @@ class Backend(typing.Protocol):
 
         return scope
 
-    def get_channel(self, addr: str) -> Optional[ChannelProxy]:
+    def get_channel(self, addr: str) -> typing.Optional[ChannelProxy]:
         """Returns a ChannelProxy from a channel address or identifier."""
         ...
 
-    def get_user(self, addr: str) -> Optional[UserProxy]:
-        """Returns an UserProxy from an user address or identifier."""
+    def get_user(self, addr: str) -> typing.Optional[UserProxy]:
+        """Get an UserProxy from an user address or identifier."""
         ...
 
-
-class DuplexBackend(Backend):
+async def start(self):
     """
-    A backend that supports both asynchronous sending
-    and receiving of message information.
+    Starts the backend.
     """
 
-    def __init__(
-        self,
-        cooldown_hertz: float = 1.2,
-        max_heat: int = 5,
-        throttle: bool = True,
-        logger: logging.Logger = None,
-    ):
-        super().__init__()
+    connection = await trio.open_tcp_stream(self.host, self.port)
 
-        self._out_queue = queue.Queue()
-        self._heat = 0
-        self._max_heat = max_heat
-        self.cooldown_hertz = cooldown_hertz
-        self.throttle = throttle
-        self.logger = logger
+    if self.ssl_context:
+        connection = trio.SSLStream(connection, self.ssl_context)
 
-    def max_heat(self) -> int:
+    self.connection = connection
+    self._running = True
+
+    async with trio.open_nursery() as nursery:
+
+        async def _loaded_stop_scopes():
+            nursery.start_soon(self._cooldown)
+            nursery.start_soon(self._sender)
+
+            for func_name in self.start_funcs:
+                nursery.start_soon(getattr(self, func_name))
+
+            if self.auto_do_irc_handshake:
+                nursery.start_soon(self.send_irc_handshake)
+
+        nursery.start_soon(self._watch_stop_scopes, _loaded_stop_scopes)
+
+    self._running = False
+
+async def stop(self):
+    """Asks this Backend to stop gracefully."""
+    self._stopping = True
+
+    for scope in self.stop_scopes:
+        scope.cancel()
+
+    await self.gracefully_close()
+
+    while self.running():
+        await trio.sleep(0.05)
+
+    self._running = False
+    self._stopping = False
+
+    async def gracefully_close(self):
+        """Perform graceful closure operations."""
+        ...
+
+    def running(self):
+        """Returns whether this client is still up and running.
+
+        Returns:
+            bool -- Self-explanatory.
+        """
+
+        return self._running and not self._stopping
+
+    async def deinit(self):
+        ...
+
+    # Convenience decorators below.
+
+    @classmethod
+    def when_running(f):
+        """Decorator for a function that should run in 'while self.running'."""
+        def _inner(self, *args, **kwargs):
+            while self.running():
+                f(*args, **kwargs)
+
+        return _inner
+
+    @classmethod
+    def stop_scope(f):
+        """Decorator that wraps a function in a stop scope."""
+        def _inner(self, *args, **kwargs):
+            with self.new_stop_scope():
+                f(*args, **kwargs)
+
+        return _inner
+
+
+@attr.s(auto_attribs=True)
+class ThrottledBackend(Backend, typing.Protocol):
+    """
+    A backend that supports throttling.
+    """
+
+    cooldown_hertz: float = 1.2
+    max_heat: int = 5
+    throttle: bool = True
+    logger: logging.Logger = attr.Factory(lambda: None)
+    out_queue: queue.Queue = attr.Factory(queue.Queue)
+    heat: int = 0
+    start_funcs: typing.ClassVar[list[str]] = []
+
+    def running(self):
+        """Returns whether this IRC connection is still up and running.
+
+            >>> conn = IRCConnection('this.does.not.exist')
+            >>> conn.running()
+            False
+
+        Returns:
+            bool -- Self-explanatory.
+        """
+
+        return self._running and not self._stopping
+
+    async def _cooldown(self):
+        """
+        This async loop is responsible for 'cooling' the backend
+        down, at a specified frequency. It's part of the
+        throttling mechanism.
+        """
+
+        if self.throttle:
+            with self.new_stop_scope():
+                while self.running():
+                    self.heat = max(self.heat - 1, 0)
+
+                    await trio.sleep(1 / self.cooldown_hertz)
+
+    async def send(self, line: any):
+        """
+        Queues to send a backend-specific object.
+        May be throttled. Despite being async, this function
+        blocks, because it must emit the _SENT event.
+
+        Arguments:
+            line {str} -- The line to send.
+        """
+
+        waiting = [True]
+
+        async def post_wait():
+            waiting[0] = False
+
+        self.out_queue.put((line, post_wait))
+
+        with self.new_stop_scope():
+            while waiting[0]:
+                await trio.sleep(0.05)
+
+    async def _sender(self):
+        """
+        This async loop is responsible for sending messages,
+        handling throttling, and other similar things.
+        """
+
+        with self.new_stop_scope():
+            while self.running():
+                while not self.out_queue.empty():
+                    if self.throttle:
+                        self.heat += 1
+
+                        if self.heat > self.max_heat:
+                            break
+
+                    item, on_send = self.out_queue.get()
+
+                    await self._send(item)
+
+                    if on_send:
+                        await on_send()
+
+                    await self.receive_message("_SENT", item)
+
+                if self.running():
+                    if self.heat > self.max_heat and self.throttle:
+                        while self.heat:
+                            await trio.sleep(0.2)
+
+                    else:
+                        await trio.sleep(0.05)
+
+    async def _send(self, item: any):
+        """Underlying method that sends a message through the Backend."""
+        ...
+
+    def maximum_heat(self) -> int:
         """
         The maximum value self.heat can reach before
         throttling commences.
 
-        Defaults to self._max_heat.
+        Defaults to self.max_heat.
         """
 
-        return self._max_heat
+        return self.max_heat
+
+
+    def next_send_time(self):
+        """
+        Finds the next time where it will be acceptable
+        to send another message, according to cooldown
+        metrics.
+        """
+
+        base = self._last_send_time + self.min_send_interval
+
+        if self._overheated:
+            return base + self.heat / self.cooldown_hertz
+
+        else:
+            return base
+
+    def heat_up(self):
+        """Try to increase heat, and check for overheat."""
+        self.heat += 1
+
+        if self.heat > self.max_heat:
+            self._overheated = True
+
+    def heat_down(self):
+        """Lower heat, and unset overheat if applicable and below threshold."""
+        self.heat -= 1
+
+        if self.heat <= 0:
+            self.heat = 0
+
+            if self._overheated:
+                self._overheated = False

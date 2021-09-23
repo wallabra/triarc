@@ -17,11 +17,10 @@ from typing import Optional, Set, Union
 
 import trio
 
-import triarc
-from triarc.errors import TriarcBotBackendRefusedError
-from triarc.mutator import Mutator
-
+from .comms.impl import MessageProxy, UserProxy
 from .comms.wrapper import Channel, Message, MessageLegacyProxy, User
+from .errors import TriarcBotBackendRefusedError
+from .mutator import Mutator
 
 if typing.TYPE_CHECKING:
     from .comms.impl import Backend, ChannelProxy, MessageProxy, UserProxy
@@ -228,6 +227,8 @@ class Bot:
 class CommandBot(Bot):
     """
     A Bot subclass that responds to commands.
+
+    This class is deprecated by the Reactor.
 
     CommandBot subclasses can use the init method to
     add commands, or load plugins that do so.
