@@ -4,6 +4,7 @@ The Backend class.
 The base class of all Triarc backends is here defined.
 """
 
+import attr
 import logging
 import queue
 import typing
@@ -12,17 +13,19 @@ from collections.abc import Iterable
 
 import trio
 
-from triarc.mutator import Mutator
+from .mutator import Mutator
 
 if typing.TYPE_CHECKING:
     from typing import Optional
 
-    from .comm.base import MessageToSend
-    from .comm.impl import ChannelProxy, CompositeContentType, UserProxy
+    from .comms.tosend import MessageToSend
+    from .comms.base import CompositeContentType
+    from .comms.impl import ChannelProxy, UserProxy
 
 BackendType = typing.TypeVar("BackendType", "Backend")
 
 
+@attr.s(autoattrib=True)
 class Backend(typing.Protocol):
     """
     Dummy backend implementation superclass.
@@ -32,15 +35,17 @@ class Backend(typing.Protocol):
     (and thus required) by the Triarc bot that will eventually use it.
     """
 
-    def __init__(self, identifier: Optional[str] = None):
-        self.identifier = identifier if identifier is not None else str(uuid.uuid4())
-        self.mutators: set[Mutator] = set()
+    identifier: str = attr.Factory(
+        lambda identifier: identifier if identifier is not None else str(uuid.uuid4())
+    )
+    mutators: dict[str, Mutator] = attr.Factory(dict)
+    listeners: dict[str, set[typing.Callable[[str, any], None]]] = attr.Factory(dict)
+    global_listeners: dict[str, set[typing.Callable[[str, any], None]]] = attr.Factory(
+        dict
+    )
 
-        self._listeners = {}
-        self._global_listeners = set()
-
-        self.stop_scopes = set()
-        self.stop_scope_watcher = None  # type: trio.NurseryManager
+    self.stop_scopes: set = attr.Factory(set)
+    self.stop_scope_watcher: typing.Optional[trio.NurseryManager] = None
 
     def get_composite_types(self) -> Iterable[CompositeContentType]:
         """Get a list of all CompositeContent implementation types supported."""
@@ -67,7 +72,7 @@ class Backend(typing.Protocol):
         """
 
         def _decorator(func):
-            self._listeners.setdefault(name, set()).add(func)
+            self.listeners.setdefault(name, set()).add(func)
             return func
 
         return _decorator
@@ -81,7 +86,7 @@ class Backend(typing.Protocol):
         """
 
         def _decorator(func):
-            self._global_listeners.add(func)
+            self.global_listeners.add(func)
             return func
 
         return _decorator
@@ -125,7 +130,7 @@ class Backend(typing.Protocol):
             data {any} -- The message's data.
         """
 
-        lists = self._listeners.get(kind, set()) | self._global_listeners
+        lists = self.listeners.get(kind, set()) | self.global_listeners
 
         for listener in lists:
             await listener(kind, data)
@@ -136,13 +141,11 @@ class Backend(typing.Protocol):
 
     async def start(self):
         """Starts the backend."""
-
-        raise NotImplementedError("Please subclass and implement!")
+        ...
 
     async def stop(self):
         """Stops the backend."""
-
-        raise NotImplementedError("Please subclass and implement!")
+        ...
 
     async def message(self, target: str, message: str):
         """Standard backend method, which must be implemented by
@@ -152,6 +155,7 @@ class Backend(typing.Protocol):
             target {str} -- The target of the message (user, channel, etc).
             message {str} -- The message to be sent.
         """
+        ...
 
     def message_sync(self, target: str, message: str):
         """Synchronous backend method, which must be implemented by
@@ -162,6 +166,7 @@ class Backend(typing.Protocol):
             target {str} -- The target of the message (user, channel, etc).
             message {str} -- The message to be sent.
         """
+        ...
 
     def post_bot_register(self, bot):
         """
@@ -173,6 +178,7 @@ class Backend(typing.Protocol):
         Arguments:
             bot {triarc.bot.Bot}: The Bot that registers this Backend.
         """
+        ...
 
     def pre_bot_register(self, bot):
         """
@@ -199,7 +205,7 @@ class Backend(typing.Protocol):
             nursery.start_soon(_run_until_stopped)
             nursery.start_soon(on_loaded)
 
-    def construct_message_lines(self, *lines: Iterable[str]) -> "MessageToSend":
+    def construct_message_lines(self, *lines: typing.Iterable[str]) -> "MessageToSend":
         """
         Constructs a new MessageToSend object from one or more
         lines of plaintext.
@@ -239,11 +245,11 @@ class Backend(typing.Protocol):
 
         return scope
 
-    def get_channel(self, addr: str) -> Optional[ChannelProxy]:
+    def get_channel(self, addr: str) -> typing.Optional[ChannelProxy]:
         """Returns a ChannelProxy from a channel address or identifier."""
         ...
 
-    def get_user(self, addr: str) -> Optional[UserProxy]:
+    def get_user(self, addr: str) -> typing.Optional[UserProxy]:
         """Returns an UserProxy from an user address or identifier."""
         ...
 
