@@ -38,7 +38,7 @@ class MessageToSend(typing.Protocol):
         ...
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class PlaintextToSend:
     """A plaintext MessageToSend implementation."""
 
@@ -60,7 +60,7 @@ class PlaintextToSend:
     async def send(self) -> bool:
         return await self.target.message_lines(self.lines)
 
-    def target(self) -> "Messageable":
+    def get_target(self) -> "Messageable":
         return self.target
 
     def contents(self) -> typing.Generator[str, None, None]:
@@ -84,8 +84,8 @@ class CompositeToSend:
     async def send(self) -> bool:
         return await self.target.message_composite(self.instance)
 
-    def target(self) -> "Messageable":
+    def get_target(self) -> "Messageable":
         return self.target
 
     def contents(self) -> typing.Generator[str, None, None]:
-        yield from self.composite.get_lines()
+        yield from self.instance.get_lines()

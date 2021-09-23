@@ -4,10 +4,9 @@ Basic components at the core of Triarc's definition of messaging.
 
 import typing
 from collections.abc import Iterable
-from typing import Optional, Literal
+from typing import Literal, Optional
 
-if typing.TYPE_CHECKING:
-    from ..backend import Backend
+from ..backend import Backend
 
 
 class Messageable(typing.Protocol):

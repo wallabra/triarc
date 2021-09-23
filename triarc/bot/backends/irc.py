@@ -13,17 +13,16 @@ from typing import Iterable, List, Literal, Optional, Set
 import attr
 import trio
 
-from ..backend import DuplexBackend
+from ..backend import ThrottledBackend
 from ..bot import MessageLegacy
-from ..comms.impl import ChannelProxy, MessageProxy, UserProxy, Messageable, datetime
+from ..comms.impl import ChannelProxy, Messageable, MessageProxy, UserProxy, datetime
+from ..comms.base import CompositeContentInstance
 
 if typing.TYPE_CHECKING:
-    from triarc.backend import Backend
-
-    from ..comms.base import CompositeContentInstance
+    from ..backend import Backend
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class IRCTarget(Messageable):
     """The IRC backend's universal Messageable implementation."""
 
@@ -47,7 +46,7 @@ class IRCTarget(Messageable):
         )
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class IRCOrigin:
     full: str
     type: Literal["user" | "server"]
@@ -94,7 +93,7 @@ class IRCMessageError(IRCError):
     pass
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class IRCMessage(MessageProxy):
     """New IRCMessage, implements MessageProxy."""
 
@@ -106,7 +105,7 @@ class IRCMessage(MessageProxy):
 
     @classmethod
     def create(
-        cls: typing.Typé["IRCMessage"],
+        cls: typing.Type["IRCMessage"],
         backend: "IRCConnection",
         origin: str,
         line: str,
@@ -114,12 +113,12 @@ class IRCMessage(MessageProxy):
     ) -> "IRCMessage":
         """Creates an IRCMessage object for a received message."""
         return cls(
-            backend, IRCOrigin.parse(origin), target, line, datetime.datetime.utcnow()
+            backend, IRCOrigin.create(origin), target, line, datetime.datetime.utcnow()
         )
 
     @classmethod
     def from_response(
-        cls: typing.Typé["IRCMessage"],
+        cls: typing.Type["IRCMessage"],
         backend: "IRCConnection",
         response: "IRCResponse",
     ) -> "IRCMessage":
@@ -171,10 +170,10 @@ class IRCMessage(MessageProxy):
 
             <AntonTheIRCGuy> I said some stuff! Hooray me!
         """
-        if self.origin.is_server():
-            raise IRCMessageError("Cannot handle PRIVMSGs sent from servers!")
+        if self.irc_origin.is_server():
+            return "(<{}> {})".format(self.irc_origin.full, self.line)
 
-        return "<{}> {}".format(self.origin.nick, self.line)
+        return "<{}> {}".format(self.irc_origin.nick, self.line)
 
     def get_main_line(self) -> str:
         """
@@ -264,7 +263,7 @@ class IRCMessageLegacy(MessageLegacy):
         return success
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class IRCParams:
     args: list[str] = attr.Factory(list)
     data: Optional[str] = attr.Factory(
@@ -272,7 +271,7 @@ class IRCParams:
     )
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class UserRecord(UserProxy):
     """An IRC user record. Also a UserProxy implementation."""
 
@@ -349,7 +348,7 @@ class UserRecord(UserProxy):
         return self.online
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class ChannelRecord(ChannelProxy):
     """
     A known IRC channel. Also a ChannelProxy implementation.
@@ -394,7 +393,7 @@ class ChannelRecord(ChannelProxy):
         return self.backend.list_users_at(self.channel)
 
 
-@attr.s(autoattrib=True)
+@attr.s(auto_attribs=True)
 class IRCResponse:
     line: str
     origin: str
@@ -598,10 +597,12 @@ class IRCRecordStorage:
         return chan
 
 
-class IRCConnection(DuplexBackend):
+class IRCConnection(ThrottledBackend):
     """An IRC connection. Used in order to create Triarc bots
     that function on IRC.
     """
+
+    start_funcs = ["_receiver"]
 
     def __init__(
         self,
@@ -703,87 +704,8 @@ class IRCConnection(DuplexBackend):
         else:
             self.nickserv = None
 
-    def running(self):
-        """Returns whether this IRC connection is still up and running.
-
-            >>> conn = IRCConnection('this.does.not.exist')
-            >>> conn.running()
-            False
-
-        Returns:
-            bool -- Self-explanatory.
-        """
-
-        return self._running and not self._stopping
-
-    async def _cooldown(self):
-        """
-        This async loop is responsible for 'cooling' the bot
-        down, at a specified frequency. It's part of the
-        throttling mechanism.
-        """
-
-        if self.throttle:
-            with self.new_stop_scope():
-                while self.running():
-                    self._heat = max(self._heat - 1, 0)
-
-                    await trio.sleep(1 / self.cooldown_hertz)
-
-    async def send(self, line: str):
-        """
-        Queues to send a raw IRC command (string).
-        May be throttled. This function
-        blocks, because it must emit the _SENT event.
-
-        Arguments:
-            line {str} -- The line to send.
-        """
-
-        waiting = [True]
-
-        async def post_wait():
-            waiting[0] = False
-
-        self._out_queue.put((line, post_wait))
-
-        with self.new_stop_scope():
-            while waiting[0]:
-                await trio.sleep(0.05)
-
-    async def _sender(self):
-        """
-        This async loop is responsible for sending messages,
-        handling throttling, and other similar things.
-        """
-
-        with self.new_stop_scope():
-            while self.running():
-                while not self._out_queue.empty():
-                    if self.throttle:
-                        self._heat += 1
-
-                        if self._heat > self._max_heat:
-                            break
-
-                    item, on_send = self._out_queue.get()
-
-                    await self._send(item)
-
-                    if on_send:
-                        await on_send()
-
-                    await self.receive_message("_SENT", item)
-
-                if self.running():
-                    if self._heat > self._max_heat and self.throttle:
-                        while self._heat:
-                            await trio.sleep(0.2)
-
-                    else:
-                        await trio.sleep(0.05)
-
     async def _send(self, item: str):
+        """Send an actual IRC event through this backend."""
         await self.connection.send_all(str(item).encode("utf-8") + b"\r\n")
 
     async def _receive(self, line: str):
@@ -878,6 +800,11 @@ class IRCConnection(DuplexBackend):
 
         return True
 
+    async def gracefully_close(self):
+        return await self.connection.aclose()
+
+    @when_running
+    @stop_scope
     async def _receiver(self):
         with self.new_stop_scope():
             while self.running():
@@ -937,47 +864,6 @@ class IRCConnection(DuplexBackend):
             # kicked/banned from them and send_irc_handshake is called again).
             self.join_channels = set()
 
-    async def start(self):
-        """
-        Starts the IRC connection.
-        """
-
-        connection = await trio.open_tcp_stream(self.host, self.port)
-
-        if self.ssl_context:
-            connection = trio.SSLStream(connection, self.ssl_context)
-
-        self.connection = connection
-        self._running = True
-
-        async with trio.open_nursery() as nursery:
-
-            async def _loaded_stop_scopes():
-                nursery.start_soon(self._cooldown)
-                nursery.start_soon(self._sender)
-                nursery.start_soon(self._receiver)
-
-                if self.auto_do_irc_handshake:
-                    nursery.start_soon(self.send_irc_handshake)
-
-            nursery.start_soon(self._watch_stop_scopes, _loaded_stop_scopes)
-
-        self._running = False
-
-    async def stop(self):
-        self._stopping = True
-
-        for scope in self.stop_scopes:
-            scope.cancel()
-
-        await self.connection.aclose()
-
-        while self.running():
-            await trio.sleep(0.05)
-
-        self._running = False
-        self._stopping = False
-
     # === IRC commands ===
 
     async def join(self, channel: str, chan_pass: Optional[str] = None):
@@ -1026,7 +912,7 @@ class IRCConnection(DuplexBackend):
         )
 
     def message_sync(self, target: str, message: str):
-        self._out_queue.put(("PRIVMSG {} :{}".format(target, message), None))
+        self.out_queue.put(("PRIVMSG {} :{}".format(target, message), None))
 
     def get_channel(self, addr: str) -> Optional[ChannelProxy]:
         """Returns a ChannelProxy from a channel address or identifier."""
