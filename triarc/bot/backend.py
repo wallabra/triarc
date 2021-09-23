@@ -40,7 +40,7 @@ class Backend(typing.Protocol):
     )
     mutators: dict[str, Mutator] = attr.Factory(dict)
     listeners: dict[str, set[typing.Callable[[str, any], None]]] = attr.Factory(dict)
-    global_listeners: dict[str, set[typing.Callable[[str, any], None]]] = attr.Factory(
+    globallisteners: dict[str, set[typing.Callable[[str, any], None]]] = attr.Factory(
         dict
     )
 
@@ -86,7 +86,7 @@ class Backend(typing.Protocol):
         """
 
         def _decorator(func):
-            self.global_listeners.add(func)
+            self.globallisteners.add(func)
             return func
 
         return _decorator
@@ -130,7 +130,7 @@ class Backend(typing.Protocol):
             data {any} -- The message's data.
         """
 
-        lists = self.listeners.get(kind, set()) | self.global_listeners
+        lists = self.listeners.get(kind, set()) | self.globallisteners
 
         for listener in lists:
             await listener(kind, data)

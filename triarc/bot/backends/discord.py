@@ -136,9 +136,9 @@ class DiscordClient(ThrottledBackend):
         self._token = token
         self.nickname = None
 
-        self._out_queue_in = None
-        self._out_queue_out = None
-        self._heat = 0
+        self.out_queue_in = None
+        self.out_queue_out = None
+        self.heat = 0
         self.max_heat = max_heat
         self.cooldown_hertz = cooldown_hertz
         self.throttle = throttle
@@ -178,7 +178,7 @@ class DiscordClient(ThrottledBackend):
         """
 
         def _decorator(func):
-            self._listeners.setdefault(name, set()).add(func)
+            self.listeners.setdefault(name, set()).add(func)
             return func
 
         return _decorator
@@ -192,7 +192,7 @@ class DiscordClient(ThrottledBackend):
         """
 
         def _decorator(func):
-            self._global_listeners.add(func)
+            self.global_listeners.add(func)
             return func
 
         return _decorator
@@ -218,7 +218,7 @@ class DiscordClient(ThrottledBackend):
         if self.throttle:
             with self.new_stop_scope():
                 while self.running():
-                    self._heat = max(self._heat - 1, 0)
+                    self.heat = max(self.heat - 1, 0)
 
                     await trio.sleep(1 / self.cooldown_hertz)
 
@@ -235,7 +235,7 @@ class DiscordClient(ThrottledBackend):
                                when sending.
         """
 
-        await self._out_queue_in.send(line)
+        await self.out_queue_in.send(line)
 
     def next_send_time(self):
         """
@@ -247,22 +247,22 @@ class DiscordClient(ThrottledBackend):
         base = self._last_send_time + self.min_send_interval
 
         if self._overheated:
-            return base + self._heat / self.cooldown_hertz
+            return base + self.heat / self.cooldown_hertz
 
         else:
             return base
 
     def heat_up(self):
-        self._heat += 1
+        self.heat += 1
 
-        if self._heat > self._max_heat:
+        if self.heat > self.max_heat:
             self._overheated = True
 
     def heat_down(self):
-        self._heat -= 1
+        self.heat -= 1
 
-        if self._heat <= 0:
-            self._heat = 0
+        if self.heat <= 0:
+            self.heat = 0
 
             if self._overheated:
                 self._overheated = False
@@ -277,9 +277,9 @@ class DiscordClient(ThrottledBackend):
             while self.running():
                 if self.throttle:
                     self.heat_up()
-                    self._heat += 1
+                    self.heat += 1
 
-                    if self._heat > self._max_heat:
+                    if self.heat > self.max_heat:
                         await trio.sleep(1.0 / self.cooldown_hertz)
                         self.heat_down()
 
@@ -288,7 +288,7 @@ class DiscordClient(ThrottledBackend):
                 if next_time < time.time():
                     await trio.sleep(time.time() - next_time)
 
-                callback = await self._out_queue_out.receive()
+                callback = await self.out_queue_out.receive()
                 await callback()
 
                 self._last_send_time = time.time()
@@ -438,12 +438,12 @@ class DiscordClient(ThrottledBackend):
 
         if embed:
             self._mutate_embed(target, message)
-            self._out_queue.put(
+            self.out_queue.put(
                 self._message_embed_callback(target, message, reference=reference)
             )
 
         else:
-            self._out_queue.put(
+            self.out_queue.put(
                 self._message_callback(
                     target,
                     self._mutate_reply(str(target.id), message),
@@ -469,7 +469,7 @@ class DiscordClient(ThrottledBackend):
         self._running = True
 
         try:
-            self._out_queue_in, self._out_queue_out = trio.open_memory_channel(0)
+            self.out_queue_in, self.out_queue_out = trio.open_memory_channel(0)
 
             async with trio.open_nursery() as nursery:
 
@@ -483,7 +483,7 @@ class DiscordClient(ThrottledBackend):
                 nursery.start_soon(self._watch_stop_scopes, _loaded_stop_scopes)
 
         finally:
-            await self._out_queue_out.aclose()
+            await self.out_queue_out.aclose()
 
             self._running = False
 
@@ -507,4 +507,4 @@ class DiscordClient(ThrottledBackend):
         return True
 
     def deinit(self):
-        self._out_queue_in.aclose()
+        self.out_queue_in.aclose()

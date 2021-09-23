@@ -725,7 +725,7 @@ class IRCConnection(ThrottledBackend):
         if self.throttle:
             with self.new_stop_scope():
                 while self.running():
-                    self._heat = max(self._heat - 1, 0)
+                    self.heat = max(self.heat - 1, 0)
 
                     await trio.sleep(1 / self.cooldown_hertz)
 
@@ -744,7 +744,7 @@ class IRCConnection(ThrottledBackend):
         async def post_wait():
             waiting[0] = False
 
-        self._out_queue.put((line, post_wait))
+        self.out_queue.put((line, post_wait))
 
         with self.new_stop_scope():
             while waiting[0]:
@@ -758,14 +758,14 @@ class IRCConnection(ThrottledBackend):
 
         with self.new_stop_scope():
             while self.running():
-                while not self._out_queue.empty():
+                while not self.out_queue.empty():
                     if self.throttle:
-                        self._heat += 1
+                        self.heat += 1
 
-                        if self._heat > self._max_heat:
+                        if self.heat > self.max_heat:
                             break
 
-                    item, on_send = self._out_queue.get()
+                    item, on_send = self.out_queue.get()
 
                     await self._send(item)
 
@@ -775,8 +775,8 @@ class IRCConnection(ThrottledBackend):
                     await self.receive_message("_SENT", item)
 
                 if self.running():
-                    if self._heat > self._max_heat and self.throttle:
-                        while self._heat:
+                    if self.heat > self.max_heat and self.throttle:
+                        while self.heat:
                             await trio.sleep(0.2)
 
                     else:
@@ -1025,7 +1025,7 @@ class IRCConnection(ThrottledBackend):
         )
 
     def message_sync(self, target: str, message: str):
-        self._out_queue.put(("PRIVMSG {} :{}".format(target, message), None))
+        self.out_queue.put(("PRIVMSG {} :{}".format(target, message), None))
 
     def get_channel(self, addr: str) -> Optional[ChannelProxy]:
         """Returns a ChannelProxy from a channel address or identifier."""
