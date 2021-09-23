@@ -14,7 +14,7 @@ from typing import Iterable, List, Literal, Optional, Set
 import attr
 import trio
 
-from ..backend import DuplexBackend
+from ..backend import ThrottledBackend
 from ..bot import MessageLegacy
 from ..comms.base import Messageable
 from ..comms.impl import ChannelProxy, Messageable, MessageProxy, UserProxy, datetime
@@ -52,7 +52,7 @@ class XMPPMessage(MessageProxy):
 
 
 @attr.s(auto_attribs=True)
-class XMPPBackend(DuplexBackend):
+class XMPPBackend(ThrottledBackend):
     """The XMPP backend object."""
 
     pass

@@ -23,7 +23,7 @@ import discord
 import trio
 import trio_asyncio
 
-from ..backend import DuplexBackend
+from ..backend import ThrottledBackend
 from ..bot import Message
 
 
@@ -94,7 +94,7 @@ class DiscordMessage(Message):
         return success
 
 
-class DiscordClient(DuplexBackend):
+class DiscordClient(ThrottledBackend):
     """
     A Discord backend. Used in order to create Triarc bots
     that function on Discord.

@@ -15,12 +15,12 @@ import trio
 
 from .mutator import Mutator
 from .comms.base import CompositeContentType
+from .comms.impl import ChannelProxy, UserProxy
 
 if typing.TYPE_CHECKING:
     from typing import Optional
 
     from .comms.tosend import MessageToSend
-    from .comms.impl import ChannelProxy, UserProxy
 
 BackendType = typing.TypeVar("BackendType", "Backend")
 
@@ -250,38 +250,29 @@ class Backend(typing.Protocol):
         ...
 
     def get_user(self, addr: str) -> typing.Optional[UserProxy]:
-        """Returns an UserProxy from an user address or identifier."""
+        """Get an UserProxy from an user address or identifier."""
         ...
 
 
-class DuplexBackend(Backend):
+@attr.s(auto_attribs=True)
+class ThrottledBackend(Backend, typing.Protocol):
     """
-    A backend that supports both asynchronous sending
-    and receiving of message information.
+    A backend that supports throttling.
     """
 
-    def __init__(
-        self,
-        cooldown_hertz: float = 1.2,
-        max_heat: int = 5,
-        throttle: bool = True,
-        logger: logging.Logger = None,
-    ):
-        super().__init__()
+    cooldown_hertz: float = 1.2
+    max_heat: int = 5
+    throttle: bool = True
+    logger: logging.Logger = attr.Factory(lambda: None)
+    out_queue: queue.Queue = attr.Factory(queue.Queue)
+    heat: int = 0
 
-        self._out_queue = queue.Queue()
-        self._heat = 0
-        self._max_heat = max_heat
-        self.cooldown_hertz = cooldown_hertz
-        self.throttle = throttle
-        self.logger = logger
-
-    def max_heat(self) -> int:
+    def maximum_heat(self) -> int:
         """
         The maximum value self.heat can reach before
         throttling commences.
 
-        Defaults to self._max_heat.
+        Defaults to self.max_heat.
         """
 
-        return self._max_heat
+        return self.max_heat

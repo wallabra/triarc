@@ -13,7 +13,7 @@ from typing import Iterable, List, Literal, Optional, Set
 import attr
 import trio
 
-from ..backend import DuplexBackend
+from ..backend import ThrottledBackend
 from ..bot import MessageLegacy
 from ..comms.impl import ChannelProxy, Messageable, MessageProxy, UserProxy, datetime
 from ..comms.base import CompositeContentInstance
@@ -597,7 +597,7 @@ class IRCRecordStorage:
         return chan
 
 
-class IRCConnection(DuplexBackend):
+class IRCConnection(ThrottledBackend):
     """An IRC connection. Used in order to create Triarc bots
     that function on IRC.
     """
