@@ -171,10 +171,10 @@ class IRCMessage(MessageProxy):
 
             <AntonTheIRCGuy> I said some stuff! Hooray me!
         """
-        if self.origin.is_server():
-            raise IRCMessageError("Cannot handle PRIVMSGs sent from servers!")
+        if self.irc_origin.is_server():
+            return "({}: {})".format(self.irc_origin.full, self.line)
 
-        return "<{}> {}".format(self.origin.nick, self.line)
+        return "<{}> {}".format(self.irc_origin.nick, self.line)
 
     def get_main_line(self) -> str:
         """
