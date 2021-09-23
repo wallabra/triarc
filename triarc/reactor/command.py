@@ -1,11 +1,11 @@
 """
-A remote Command.
+A base class for a Command that a Reactor implements.
 
 Used by command-type reactors (the only type that currently exists).
 """
 
 
-class RemoteCommand:
+class Command:
     pass
 
 
