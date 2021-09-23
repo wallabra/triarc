@@ -337,7 +337,7 @@ class TrioRPCServer(contextlib.AbstractAsyncContextManager, typing.Protocol):
         line_buffer = []
 
         async for data in server_stream:
-            fragments = data.decode('utf-8').split("\n")
+            fragments = data.decode("utf-8").split("\n")
 
             line_buffer.append(fragments[0])
 
