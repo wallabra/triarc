@@ -343,7 +343,7 @@ class TrioRPCTarget(RPCResponseTarget):
 
     async def _object(self, obj: typing.Any):
         """Send an RPC object to this target."""
-        await self.connection.send(json.dumps(obj).encode('utf-8') + b"\n")
+        await self.connection.send(json.dumps(obj).encode("utf-8") + b"\n")
 
     async def close(self):
         """Ask to close this RPC target."""
