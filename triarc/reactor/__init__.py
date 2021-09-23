@@ -8,5 +8,3 @@ The reactor breathes live to your triarc bot, supplying
 commands and handling all sorts of protocol-agnostic
 chatter!
 """
-
-# wip: finish reactor code
