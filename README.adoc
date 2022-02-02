@@ -20,8 +20,9 @@ point! Don't forget to keep your favourite editor's autocomplete handy :)
 
 == Contact
 
-Email:: rehermann6046@gmail.com  
-IRC:: Gustavo6046 @ Libera, OFTC, EsperNet, BrasIRC, AnthroChat...
-Discord:: Gustavo6046#9009  
-Mastodon:: @gustavo6046@fosstodon.org  
-Keybase:: gustavo6042  
+Email:: rehermann6046@gmail.com
+IRC:: Gustavo6046 (at Libera, OFTC, ...)
+Discord:: Gustavo6046#9009
+Mastodon:: @gustavo6046@fosstodon.org and @gustavo6046@mastodon.social
+Twitter:: @Gustavo6046
+XMPP:: Gustavo6046@anonym.im
