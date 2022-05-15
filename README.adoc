@@ -1,0 +1,28 @@
+triarc
+======
+
+It's *the*
+
+ * versatile,
+ * cross-protocol,
+ * async,¹
+ * fast,
+ * awesome!
+
+bot writing framework for Python 3!
+
+_¹ thanks trio! <3_
+
+== How to Use
+
+See `example/pingbot/pingbot.py` and nearby files for a good starting
+point! Don't forget to keep your favourite editor's autocomplete handy :)
+
+== Contact
+
+Email:: rehermann6046@gmail.com
+IRC:: wallabra (at Libera, OFTC, ...)
+Discord:: wallabra#9009
+Mastodon:: @gustavo6046@fosstodon.org and @gustavo6046@mastodon.social
+Twitter:: @Gustavo6046
+XMPP:: Gustavo6046@anonym.im
