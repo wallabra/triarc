@@ -4,7 +4,7 @@ import setuptools
 
 setuptools.setup(
     name="triarc",
-    version="0.2.4-pre5",
+    version="0.2.4-pre6",
     author="Gustavo Ramos Rehermann",
     author_email="rehermann6046@gmail.com",
     license="COIL",
