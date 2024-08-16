@@ -14,7 +14,7 @@ setuptools.setup(
     .read()
     .strip()
     .split("\n"),
-    long_description=open(os.path.join(os.path.dirname(__file__), "README.adoc")).read(),
+    long_description=open(os.path.join(os.path.dirname(__file__), "description.md")).read(),
     packages=["triarc", "triarc.backends", "triarc.mutators"],
     classifiers=[
         "Framework :: Trio",
