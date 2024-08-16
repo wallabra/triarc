@@ -25,7 +25,7 @@ from triarc.backend import DuplexBackend
 from triarc.bot import Message
 
 
-class UnknownChannelWarning(warnings.UserWarning):
+class UnknownChannelWarning(UserWarning):
     pass
 
 
