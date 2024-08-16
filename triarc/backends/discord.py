@@ -155,6 +155,12 @@ class DiscordClient(DuplexBackend):
             if message.author == client.user:
                 return
 
+            # strip mention
+            mention = '<@{uid}>'.format(uid=client.user.id)
+            if message.content.startswith(mention):
+                message = message[len(mention):].lstrip()
+
+            print(repr(message.content))
             for line in message.content.split("\n"):
                 await self.receive_message(
                     "MESSAGE", DiscordMessage(self, line, message)
