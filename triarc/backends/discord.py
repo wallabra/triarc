@@ -452,7 +452,11 @@ class DiscordClient(DuplexBackend):
         return True
 
     async def _trio_asyncio_start(self):
-        self.client = discord.Client()
+        intents = discord.Intents.default()
+        intents.typing = False
+        intents.presences = False
+         
+        self.client = discord.Client(intents=intents)
 
         self._setup_client(self.client)
 
