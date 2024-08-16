@@ -41,15 +41,15 @@ class Message:
         self.channel_addr = channel_addr
         self.when = when or datetime.datetime.utcnow()
 
-    async def reply(self, reply_line: str, reply_reference: bool) -> bool:
+    async def reply(self, reply_line: str, reply_reference: bool | None = None) -> bool:
         """Replies back at the message anyhow."""
         pass
 
-    async def reply_channel(self, reply_line: str, reply_reference: bool) -> bool:
+    async def reply_channel(self, reply_line: str, reply_reference: bool | None = None) -> bool:
         """Replies back directly to the channel, if said distinction is applicable."""
         pass
 
-    async def reply_privately(self, reply_line: str, reply_reference: bool) -> bool:
+    async def reply_privately(self, reply_line: str, reply_reference: bool | None = None) -> bool:
         """Replies back directly to the author."""
         pass
 

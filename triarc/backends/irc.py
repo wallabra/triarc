@@ -31,14 +31,14 @@ class IRCMessage(Message):
             yield line[:300]
             line = line[300:]
 
-    async def reply(self, reply_line: str, reply_reference: bool) -> bool:
+    async def reply(self, reply_line: str, reply_reference: bool | None = False) -> bool:
         if self.channel == self.backend.nickname:
             await self.reply_privately(reply_line)
 
         else:
             await self.reply_channel(reply_line)
 
-    async def reply_channel(self, reply_line: str, reply_reference: bool) -> bool:
+    async def reply_channel(self, reply_line: str, reply_reference: bool | None = False) -> bool:
         success = True
 
         if reply_reference:
@@ -53,7 +53,7 @@ class IRCMessage(Message):
 
         return success
 
-    async def reply_privately(self, reply_line: str, reply_reference: bool) -> bool:
+    async def reply_privately(self, reply_line: str, reply_reference: bool | None = False) -> bool:
         success = True
 
         if reply_reference:

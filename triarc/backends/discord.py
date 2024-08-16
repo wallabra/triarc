@@ -54,7 +54,7 @@ class DiscordMessage(Message):
             yield line[:1900]
             line = line[1900:]
 
-    async def reply(self, reply_line: str, reply_reference: bool) -> bool:
+    async def reply(self, reply_line: str, reply_reference: bool | None = True) -> bool:
         reply_reference = True
         success = True
 
@@ -70,10 +70,10 @@ class DiscordMessage(Message):
 
         return success
 
-    async def reply_channel(self, reply_line: str, reply_reference: bool) -> bool:
+    async def reply_channel(self, reply_line: str, reply_reference: bool | None = True) -> bool:
         await self.reply(reply_line, reply_reference)  # it's the same!
 
-    async def reply_privately(self, reply_line: str, reply_reference: bool) -> bool:
+    async def reply_privately(self, reply_line: str, reply_reference: bool | None = False) -> bool:
         channel = (
             self.discord_author.dm_channel or await self.discord_author.create_dm()
         )
@@ -105,6 +105,7 @@ class DiscordClient(DuplexBackend):
         throttle: bool = True,
         cooldown_hertz: float = 1.2,
         min_send_interval: float = 0.25,
+        read_all_messages: bool = True,
     ):
         """
         Prepares a Discord bot session, via the
@@ -127,6 +128,10 @@ class DiscordClient(DuplexBackend):
             cooldown_hertz {float} --   How many times per second throttle heat is cooled down.
                                         (Values exceeding max_heat, or by default 4, are always
                                         throttled!)
+
+            read_all_messages {bool} --  Whether the bot should be able to read (and respond to)
+                                         all messages in the rooms it is in, or only the ones
+                                         that mention it. Default is True (all messages).
         """
 
         super().__init__()
@@ -142,6 +147,7 @@ class DiscordClient(DuplexBackend):
         self.throttle = throttle
         self._overheated = False
         self.min_send_interval = min_send_interval
+        self.read_all_messages = read_all_messages
 
         self._running = False
         self._stopping = False
@@ -160,7 +166,6 @@ class DiscordClient(DuplexBackend):
             if message.content.startswith(mention):
                 message = message[len(mention):].lstrip()
 
-            print(repr(message.content))
             for line in message.content.split("\n"):
                 await self.receive_message(
                     "MESSAGE", DiscordMessage(self, line, message)
@@ -461,6 +466,7 @@ class DiscordClient(DuplexBackend):
         intents = discord.Intents.default()
         intents.typing = False
         intents.presences = False
+        intents.message_content = self.read_all_messages
          
         self.client = discord.Client(intents=intents)
 
